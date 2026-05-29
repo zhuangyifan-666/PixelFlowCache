@@ -1,0 +1,43 @@
+model:
+  name: PixelFlowCacheTarget
+  type: xpred_or_vpred
+  repo: null
+  commit: null
+  checkpoint: null
+sampling:
+  resolution: 256
+  steps: 50
+  solver: heun
+  time_direction: noise_to_image
+  cfg_scale: 2.25
+  cfg_interval: [0.1, 0.9]
+cache:
+  policy: pixelflowcache
+  budget: medium
+  cache_units: [block, branch]
+  velocity_normalization: true
+  branch_aware: true
+  frequency_aware: true
+  solver_aware: true
+  cfg_aware: true
+  online_probe:
+    enabled: true
+    probe_layers: [0, 1, 2]
+    threshold: null
+  calibration:
+    enabled: false
+    type: affine_or_frequency
+profiling:
+  enabled: true
+  save_full_features: false
+  save_summary_stats: true
+  frequency_analysis: true
+  cfg_residual_analysis: true
+latency:
+  warmup: 10
+  repeats: 50
+  use_cuda_events: true
+  exclude_logging_io: true
+evaluation:
+  metrics: [FID, IS, LPIPS_to_full, DINO_to_full, frequency_error, latency]
+  sample_count: 50000

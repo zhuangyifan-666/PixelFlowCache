@@ -1,0 +1,8 @@
+ablation_id,method_variant,disabled_component,target_models,expected_effect,metric_to_watch
+A0,full PixelFlowCache,none,all,best pareto,FID LPIPS latency
+A1,no velocity normalization,param-aware criterion,JiT/PixelGen,late-stage degradation,velocity_error LPIPS
+A2,uniform branch cache,branch/frequency allocation,DeCo/PixelDiT,texture/detail degradation,Freq-H LPIPS
+A3,fixed solver policy,solver-aware reset,JiT/PixelGen/PixelDiT,solver error accumulation,error_curve
+A4,uniform CFG cache,CFG-aware weighting/residual,all,high-CFG quality drop,FID LPIPS
+A5,fixed schedule,online probe,all,outlier sample failures,per-sample LPIPS
+A6,no calibration,calibration,where used,less stable aggressive cache,aggressive FID
