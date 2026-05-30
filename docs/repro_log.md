@@ -186,3 +186,40 @@ This file is updated by Stage 0 inspection, smoke, and baseline scripts.
 - import check for `categorize_deco_module` and `FeatureRecorder`: passed
 - `pytest -q`: passed with 18 tests
 - scope: consistency cleanup only; no cache acceleration was implemented.
+## Stage 0 Smoke - 2026-05-30T12:43:43.791494+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+## Stage 0 Smoke - 2026-05-30T12:53:52.719128+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+## Stage 0 Smoke - 2026-05-30T12:58:52.910176+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+
+## Stage 2 Fixed-Interval JiT Block Cache - 2026-05-30T12:59:15Z
+
+- current `git rev-parse HEAD`: c526139d82281f9b44d335d5a3b2fcd7105d410f
+- implementation status: worktree patch pending; not committed in this turn.
+- scope: fixed-interval whole-block cache for JiT only.
+- not implemented: token cache, DeCo cache, branch-aware DeCo cache, frequency-aware cache, solver-aware cache, calibration.
+- validation environment: `conda activate jit`
+- CPU tests: `python scripts/run_stage0_smoke.py` passed; `pytest -q` passed with 33 tests.
+- GPU policy: used one GPU via `PFC_CUDA_DEVICES=0` / `CUDA_VISIBLE_DEVICES=0`.
+- Stage 2 single JiT run: completed.
+- Stage 2 single JiT run dir: `logs/stage2/jit/20260530T125647Z_seed0_steps20_i2_middle`
+- Stage 2 single setting: middle blocks `[3, 4, 5, 6, 7, 8]`, interval 2, 8 samples, 20 Euler steps, one warmup run.
+- Stage 2 single speedup: 1.321190418311986
+- Stage 2 single no-cache latency: 1.2272571776993573 sec
+- Stage 2 single cached latency: 0.9289025720208883 sec
+- Stage 2 single cache hit rate: 0.5
+- Stage 2 single cache stats: 480 total wrapped-block calls, 240 hits, 240 misses, 240 refreshes.
+- Stage 2 single quality: same-seed MSE 0.02990465611219406; MAE 0.1380673199892044; rel-L2 0.42048725485801697.
+- Stage 2 fast grid: completed.
+- Stage 2 grid dir: `logs/stage2/jit_grid/20260530T125718Z_seed0_steps20`
+- Stage 2 fast grid summary: `none/i1` speedup 0.9989671702807001 and rel-L2 0.0; `middle/i2` speedup 1.3247696088284628 and rel-L2 0.42048725485801697; `middle/i3` speedup 1.4637215804991033 and rel-L2 0.5512039065361023; `all/i2` speedup 1.8886902414919833 and rel-L2 0.25922855734825134.
+- Stage 2 plots: generated under ignored `outputs/stage2/figures/`.
+- DeCo Stage 2 status: candidate export only; no DeCo cache was implemented.
+- artifact status: `logs/`, `outputs/`, `ckpts/`, datasets, generated images, and large binaries remain ignored and should not be committed.
