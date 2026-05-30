@@ -23,6 +23,20 @@ def generic_transformer_block_filter(name: str, module: nn.Module) -> bool:
     return block_like or class_like
 
 
+def categorize_deco_module(name: str, module: nn.Module) -> str:
+    lower = name.lower()
+    class_name = module.__class__.__name__.lower()
+    if any(token in lower for token in ("norm", "modulation", "adaln", "q_norm", "k_norm")):
+        return "norm_or_modulation"
+    if "final" in lower or "head" in lower:
+        return "final"
+    if "decoder" in lower or lower.startswith("dec_net") or ".decoder" in lower:
+        return "decoder"
+    if "blocks" in lower or "cond_blocks" in lower or "block" in class_name:
+        return "block"
+    return "other"
+
+
 def select_deco_candidate_modules(net: nn.Module) -> list[tuple[str, nn.Module]]:
     candidates: list[tuple[str, nn.Module]] = []
     keywords = ("blocks", "cond_blocks", "encoder.blocks", "decoder", "denoiser", "final", "head")
@@ -45,4 +59,3 @@ def select_deco_candidate_modules(net: nn.Module) -> list[tuple[str, nn.Module]]
         seen_prefixes.add(compact_name)
         filtered.append((name, module))
     return filtered
-

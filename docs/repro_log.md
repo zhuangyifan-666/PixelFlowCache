@@ -115,7 +115,7 @@ This file is updated by Stage 0 inspection, smoke, and baseline scripts.
 ## Stage 1 Profiling - 2026-05-30T11:44:30Z
 
 - current HEAD before Stage 1 patch commit: b1a6233c2eb329ac06e188c7acd10f7ed59c7aee
-- Stage 1 implementation commit: not committed in this turn; changes remain in the worktree for review.
+- Stage 1 implementation commit: this line originally described the pre-commit worktree state for the 2026-05-30T11:44:30Z run; Stage 1 was later committed and the verified committed HEAD is recorded below.
 - scope: profiling infrastructure only; no cache acceleration, no block skipping, no token/block/branch/solver cache.
 - GPU used for JiT profile: 0
 - GPU used for DeCo profile: 0
@@ -138,3 +138,20 @@ This file is updated by Stage 0 inspection, smoke, and baseline scripts.
   - `outputs/stage1/figures/deco_frequency_ratio_by_step.png`
 - notes: `matplotlib` was installed into the `jit` conda environment for plotting; numpy was set to `1.24.4` to remain compatible with the existing scipy constraint.
 - known blockers: none blocking Stage 1; DeCo emitted torch-dynamo graph-break warnings from hooks, expected for diagnostic profiling.
+## Stage 0 Smoke - 2026-05-30T12:11:07.953030+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+
+## Stage 1 Verified Commit - 2026-05-30T12:12:34Z
+
+- current `git rev-parse HEAD`: ccadbd012db17c6a1838b64f6225a00bdf59d3f4
+- cleanup patch status: not committed in this turn; the JiT rerun below was produced from the current HEAD plus this Stage 1 cleanup worktree patch.
+- original JiT run dir: `logs/stage1/jit/20260530T114242Z_seed0_steps10`
+- original DeCo run dir: `logs/stage1/deco/20260530T114327Z_seed0_steps10`
+- cleanup JiT rerun dir: `logs/stage1/jit/20260530T121145Z_seed0_steps10`
+- cleanup DeCo rerun status: pending; existing DeCo run remains available, but its feature logs predate the new split-batch and module-category recording.
+- pytest status: `pytest -q` passed in the activated `jit` environment with 17 tests; `python scripts/run_stage0_smoke.py` passed.
+- Stage 2 candidate export: generated `stage2_cache_candidates.csv` for the original JiT run, original DeCo run, and cleanup JiT rerun.
+- logs/outputs status: `logs/` and `outputs/` are ignored and are not committed.
+- scope: profiling cleanup only; no cache acceleration, block cache, token cache, branch cache, solver-aware cache, or calibration was implemented.

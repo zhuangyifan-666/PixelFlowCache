@@ -10,7 +10,7 @@ import torch
 from pfc.profiling.feature_recorder import FeatureRecorder
 from pfc.profiling.frequency import fft_frequency_bands
 from pfc.profiling.jsonl import JsonlWriter
-from pfc.profiling.module_selectors import select_deco_candidate_modules
+from pfc.profiling.module_selectors import categorize_deco_module, select_deco_candidate_modules
 from pfc.profiling.velocity_recorder import VelocityRecorder
 
 try:
@@ -30,9 +30,17 @@ class ProfiledEulerSampler(EulerSampler):
         velocity_recorder = VelocityRecorder(velocity_writer)
 
         candidates = select_deco_candidate_modules(net)
+        module_categories = {name: categorize_deco_module(name, module) for name, module in candidates}
         (log_dir / "module_candidates.json").write_text(
             json.dumps(
-                [{"name": name, "module_kind": module.__class__.__name__} for name, module in candidates],
+                [
+                    {
+                        "name": name,
+                        "module_kind": module.__class__.__name__,
+                        "category": module_categories[name],
+                    }
+                    for name, module in candidates
+                ],
                 indent=2,
                 ensure_ascii=False,
             ),
@@ -45,6 +53,7 @@ class ProfiledEulerSampler(EulerSampler):
             model_name="DeCo",
             previous_on_cpu=True,
             previous_dtype="float16",
+            split_batch_dim0=True,
         )
         recorder.attach(net)
 
@@ -73,7 +82,13 @@ class ProfiledEulerSampler(EulerSampler):
                 cfg_enabled = bool(t_cur[0] > self.guidance_interval_min and t_cur[0] <= self.guidance_interval_max)
                 guidance = self.guidance if cfg_enabled else 1.0
 
-                recorder.set_context(i, t_value, solver_stage="euler", cfg_branch="cfg_cat")
+                recorder.set_context(
+                    i,
+                    t_value,
+                    solver_stage="euler",
+                    cfg_branch="cfg_cat",
+                    extra={"cfg_cat_batch_size": batch_size, "module_categories": module_categories},
+                )
                 out_raw = net(cfg_x, cfg_t, cfg_condition)
                 out_uncond, out_cond = out_raw.chunk(2, dim=0)
                 out = self.guidance_fn(out_raw, guidance)
@@ -161,4 +176,3 @@ class ProfiledEulerSampler(EulerSampler):
             step_writer.close()
 
         return x_trajs, v_trajs
-
