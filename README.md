@@ -1,8 +1,8 @@
 # PixelFlowCache
 
-PixelFlowCache is a research codebase for studying no-cache baselines, profiling, and later cache acceleration for pixel-space flow diffusion models. The current implementation status is **Stage 0 / Week 1**: official no-cache reproducibility for JiT and DeCo plus a small unified `pfc` interface for CPU smoke tests.
+PixelFlowCache is a research codebase for studying no-cache baselines, profiling, and later cache acceleration for pixel-space flow diffusion models. The current implementation status is **Stage 1 profiling infrastructure** for JiT and DeCo.
 
-Stage 0 does not implement block cache, token cache, branch cache, or solver-aware cache logic. Those belong after the official baselines and profiling infrastructure are stable.
+The project still does not implement block cache, token cache, branch cache, solver-aware cache, or calibration. Stage 1 only measures feature smoothness, velocity behavior, CFG behavior, and frequency behavior.
 
 ## Quickstart on this server
 
@@ -16,6 +16,25 @@ bash scripts/run_official_jit_baseline.sh
 bash scripts/run_official_deco_baseline.sh
 ```
 
+## Stage 1 Profiling
+
+Use one GPU by default:
+
+```bash
+export PFC_CUDA_DEVICES=0
+bash scripts/run_profile_jit_stage1.sh
+bash scripts/run_profile_deco_stage1.sh
+```
+
+Summarize and plot a run:
+
+```bash
+python scripts/summarize_stage1_profiles.py --run-dir logs/stage1/jit/<run_id>
+python scripts/plot_stage1_profiles.py --run-dir logs/stage1/jit/<run_id>
+```
+
+See [docs/STAGE1_PROFILING.md](docs/STAGE1_PROFILING.md) for details.
+
 The default server paths are:
 
 - Project: `/mnt/iset/nfs-main/private/zhuangyifan/PixelFlowCache`
@@ -23,9 +42,8 @@ The default server paths are:
 - JiT checkpoint dir: `ckpts/JiT/JiT-B-16-256`
 - DeCo checkpoint: `ckpts/DeCo/imagenet256_epoch800.ckpt`
 
-Use at most two GPUs by default. The baseline scripts run `nvidia-smi`, select visible devices via `CUDA_VISIBLE_DEVICES`, and honor `PFC_CUDA_DEVICES`.
+Use at most two GPUs for Stage 0 baselines and one GPU for Stage 1 profiling by default. The scripts run `nvidia-smi`, select visible devices via `CUDA_VISIBLE_DEVICES`, and honor `PFC_CUDA_DEVICES`.
 
 See [docs/STAGE0_REPRO.md](docs/STAGE0_REPRO.md) for the full reproduction protocol.
 
 Datasets, checkpoints, generated samples, logs, and other large binaries are intentionally ignored and should not be committed.
-

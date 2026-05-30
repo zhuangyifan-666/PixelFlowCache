@@ -94,3 +94,47 @@ This file is updated by Stage 0 inspection, smoke, and baseline scripts.
 - Stage 0 generation artifacts: produced before this cleanup patch at the previously recorded Stage 0 run commit 8903f5c598cc8f26242c99b57c23e7548c4a7cbf.
 - third_party cleanup: PixelDiT and PixelGen were present as gitlinks in `HEAD` but not declared in `.gitmodules`; they are removed from Stage 0 tracking, leaving JiT and DeCo as the only configured submodules.
 - validation after cleanup: `python scripts/run_stage0_smoke.py` passed; `pytest -q` passed in the activated `jit` environment with 8 tests; `python scripts/inspect_repos.py` passed.
+## Stage 0 Smoke - 2026-05-30T11:41:43.830740+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+## Stage 0 Inspect - 2026-05-30T11:41:59.387804+00:00
+
+- root commit: b1a6233c2eb329ac06e188c7acd10f7ed59c7aee
+- JiT commit: cbc743a2ada5e9762697da2c83f8c4f8379e8c17
+- DeCo commit: 0792af05c9d8dce6c61e5636d136488f264065c7
+- detected ImageNet root: /mnt/iset/nfs-main/public/datasets/ILSVRC/Data/CLS-LOC
+- detected JiT checkpoint path: /mnt/iset/nfs-main/private/zhuangyifan/PixelFlowCache/ckpts/JiT/JiT-B-16-256/checkpoint-last.pth
+- detected DeCo checkpoint path: /mnt/iset/nfs-main/private/zhuangyifan/PixelFlowCache/ckpts/DeCo/imagenet256_epoch800/imagenet256_epoch800.ckpt
+- selected GPUs for each run: not selected by inspect
+- smoke test passed: not run by inspect
+- JiT official debug baseline ran: not run by inspect
+- DeCo official debug baseline ran: not run by inspect
+- known blockers: see missing fields above
+
+## Stage 1 Profiling - 2026-05-30T11:44:30Z
+
+- current HEAD before Stage 1 patch commit: b1a6233c2eb329ac06e188c7acd10f7ed59c7aee
+- Stage 1 implementation commit: not committed in this turn; changes remain in the worktree for review.
+- scope: profiling infrastructure only; no cache acceleration, no block skipping, no token/block/branch/solver cache.
+- GPU used for JiT profile: 0
+- GPU used for DeCo profile: 0
+- tests status: `python scripts/run_stage0_smoke.py` passed; `pytest -q` passed in activated `jit` environment with 15 tests.
+- JiT profile status: completed.
+- JiT run dir: `logs/stage1/jit/20260530T114242Z_seed0_steps10`
+- JiT records: 240 feature records, 30 velocity records, 10 frequency records, 10 step records.
+- JiT summary: 12 profiled blocks; smoothest mean rel-L2 modules include `blocks.0`, `blocks.1`, and `blocks.11`.
+- DeCo profile status: completed.
+- DeCo run dir: `logs/stage1/deco/20260530T114327Z_seed0_steps10`
+- DeCo records: 1720 feature records, 30 velocity records, 10 frequency records, 10 step records.
+- DeCo summary: 170 candidate modules; smoothest mean rel-L2 modules include `blocks.7.adaLN_modulation`, `dec_net.final_layer`, and `blocks.26.norm1`.
+- generated figures:
+  - `outputs/stage1/figures/jit_block_temporal_delta_heatmap.png`
+  - `outputs/stage1/figures/jit_velocity_norm_by_step.png`
+  - `outputs/stage1/figures/jit_xpred_amplification_by_step.png`
+  - `outputs/stage1/figures/jit_frequency_ratio_by_step.png`
+  - `outputs/stage1/figures/deco_module_temporal_delta_heatmap.png`
+  - `outputs/stage1/figures/deco_velocity_norm_by_step.png`
+  - `outputs/stage1/figures/deco_frequency_ratio_by_step.png`
+- notes: `matplotlib` was installed into the `jit` conda environment for plotting; numpy was set to `1.24.4` to remain compatible with the existing scipy constraint.
+- known blockers: none blocking Stage 1; DeCo emitted torch-dynamo graph-break warnings from hooks, expected for diagnostic profiling.

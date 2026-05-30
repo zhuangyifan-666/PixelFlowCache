@@ -1,0 +1,23 @@
+model:
+  name: JiT
+  type: xpred
+paths:
+  repo: third_party/JiT
+  checkpoint_dir: ckpts/JiT/JiT-B-16-256
+  imagenet: /mnt/iset/nfs-main/public/datasets/ILSVRC/Data/CLS-LOC
+profiling:
+  num_samples: 4
+  batch_size: 4
+  steps: 10
+  seed: 0
+  modules: blocks
+sampling:
+  solver: euler
+  time_direction: noise_to_image
+  cfg_scale: 3.0
+  cfg_interval:
+    - 0.1
+    - 1.0
+hardware:
+  default_gpus: 1
+
