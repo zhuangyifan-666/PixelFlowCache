@@ -176,3 +176,13 @@ This file is updated by Stage 0 inspection, smoke, and baseline scripts.
 
 - smoke test passed: True
 - checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+
+## Stage 1 Cleanup Patch-1 Verified - 2026-05-30
+- current `git rev-parse HEAD`: 8a7d74ce5c12520f2ea18032e6c2f4fb75a2b7e6
+- validation environment: `conda activate jit`
+- `python -m py_compile pfc/profiling/feature_recorder.py`: passed
+- `python -m py_compile pfc/profiling/module_selectors.py`: passed
+- `python -m py_compile scripts/export_stage2_cache_candidates.py`: passed
+- import check for `categorize_deco_module` and `FeatureRecorder`: passed
+- `pytest -q`: passed with 18 tests
+- scope: consistency cleanup only; no cache acceleration was implemented.
