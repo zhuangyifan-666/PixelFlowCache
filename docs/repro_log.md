@@ -223,3 +223,14 @@ This file is updated by Stage 0 inspection, smoke, and baseline scripts.
 - Stage 2 plots: generated under ignored `outputs/stage2/figures/`.
 - DeCo Stage 2 status: candidate export only; no DeCo cache was implemented.
 - artifact status: `logs/`, `outputs/`, `ckpts/`, datasets, generated images, and large binaries remain ignored and should not be committed.
+
+## Stage 2 Fixed-Interval JiT Block Cache Verified Commit - 2026-05-30
+- current `git rev-parse HEAD`: <填当前HEAD>
+- validation environment: `conda activate jit`
+- `python scripts/run_stage0_smoke.py`: passed
+- `pytest -q`: passed with 33 tests
+- scope: fixed-interval whole-block JiT cache only.
+- not implemented: token cache, DeCo cache, frequency-aware policy, solver-aware policy, calibration.
+- Stage 2 single run dir: `logs/stage2/jit/20260530T125647Z_seed0_steps20_i2_middle`
+- Stage 2 grid dir: `logs/stage2/jit_grid/20260530T125718Z_seed0_steps20`
+- note: logs/outputs/previews/figures are ignored and not committed.
