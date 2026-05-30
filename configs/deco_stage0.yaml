@@ -1,0 +1,22 @@
+model:
+  name: DeCo
+  type: vpred
+paths:
+  repo: third_party/DeCo
+  checkpoint_env: PFC_DECO_CKPT
+  default_checkpoint: ckpts/DeCo/imagenet256_epoch800.ckpt
+  imagenet: /mnt/iset/nfs-main/public/datasets/ILSVRC
+sampling:
+  resolution: 256
+  steps: official_debug
+  solver: official
+  time_direction: noise_to_image
+  cfg_scale: official_config
+  cfg_interval:
+    - 0.1
+    - 1.0
+evaluation:
+  num_images_debug: 16
+hardware:
+  default_max_gpus: 2
+

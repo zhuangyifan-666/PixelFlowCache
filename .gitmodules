@@ -1,0 +1,7 @@
+[submodule "third_party/JiT"]
+	path = third_party/JiT
+	url = https://github.com/LTH14/JiT.git
+[submodule "third_party/DeCo"]
+	path = third_party/DeCo
+	url = https://github.com/Zehong-Ma/DeCo.git
+

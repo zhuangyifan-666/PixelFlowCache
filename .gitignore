@@ -1,0 +1,16 @@
+logs/
+outputs/
+samples/
+ckpts/
+checkpoints/
+data/
+datasets/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+wandb/
+
