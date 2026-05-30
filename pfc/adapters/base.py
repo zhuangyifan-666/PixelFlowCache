@@ -51,8 +51,9 @@ class ModelAdapter:
         cond: Any,
         **kwargs: Any,
     ) -> AdapterOutput:
+        eps = kwargs.pop("eps", 1e-4)
         raw = self.forward_raw(x, t, cond, **kwargs)
-        velocity = self.raw_to_velocity(raw, x, t, eps=kwargs.get("eps", 1e-4))
+        velocity = self.raw_to_velocity(raw, x, t, eps=eps)
         x0_pred = raw if self.model_type == "xpred" else None
         return AdapterOutput(raw=raw, velocity=velocity, x0_pred=x0_pred, diagnostics={})
 
@@ -83,4 +84,3 @@ class ModelAdapter:
             return t_tensor.reshape(*t_tensor.shape, *([1] * (x.ndim - t_tensor.ndim)))
 
         return t_tensor
-

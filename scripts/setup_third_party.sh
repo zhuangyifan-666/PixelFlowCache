@@ -15,8 +15,8 @@ else
 fi
 
 for repo in third_party/JiT third_party/DeCo; do
-  if [[ ! -d "${repo}" && -f .gitmodules ]]; then
-    echo "Fetching missing submodule ${repo}..."
+  if [[ -f .gitmodules ]] && { [[ ! -d "${repo}" ]] || ! git -C "${repo}" rev-parse --is-inside-work-tree >/dev/null 2>&1; }; then
+    echo "Initializing/updating submodule ${repo}..."
     git submodule update --init --recursive "${repo}"
   fi
 
@@ -29,7 +29,7 @@ for repo in third_party/JiT third_party/DeCo; do
   fi
 
   if ! git -C "${repo}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    echo "${repo} exists but is not a valid git repository."
+    echo "${repo} exists but is not a valid initialized git repository after submodule update."
     exit 1
   fi
 

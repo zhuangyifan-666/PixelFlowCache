@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 
 import torch
@@ -50,12 +51,18 @@ class UnifiedPixelFlowSampler:
             diagnostics = {
                 "cfg_enabled": True,
                 "cfg_scale": self.cfg_scale,
-                "v_cond": v_cond,
-                "v_uncond": v_uncond,
+                "v_cond_norm": self._tensor_norm(v_cond),
+                "v_uncond_norm": self._tensor_norm(v_uncond),
+                "velocity_shape": tuple(velocity.shape),
             }
         else:
             velocity = self.adapter.forward_velocity(x, t, cond, eps=self.eps).velocity
-            diagnostics = {"cfg_enabled": False, "cfg_scale": self.cfg_scale}
+            diagnostics = {
+                "cfg_enabled": False,
+                "cfg_scale": self.cfg_scale,
+                "velocity_norm": self._tensor_norm(velocity),
+                "velocity_shape": tuple(velocity.shape),
+            }
 
         policy.update(velocity=velocity, diagnostics=diagnostics)
         return velocity, diagnostics
@@ -91,9 +98,9 @@ class UnifiedPixelFlowSampler:
             x = x + dt * velocity
             step_diagnostics.append(
                 {
-                    "solver_state": solver_state,
+                    "solver_state": asdict(solver_state),
                     "cfg_enabled": diagnostics.get("cfg_enabled", False),
-                    "velocity_shape": tuple(velocity.shape),
+                    "velocity_shape": diagnostics.get("velocity_shape", tuple(velocity.shape)),
                 }
             )
 
@@ -109,3 +116,6 @@ class UnifiedPixelFlowSampler:
             return float(t.detach().float().mean().item())
         return float(t)
 
+    @staticmethod
+    def _tensor_norm(tensor: torch.Tensor) -> float:
+        return float(tensor.detach().float().norm().cpu().item())
