@@ -234,3 +234,42 @@ This file is updated by Stage 0 inspection, smoke, and baseline scripts.
 - Stage 2 single run dir: `logs/stage2/jit/20260530T125647Z_seed0_steps20_i2_middle`
 - Stage 2 grid dir: `logs/stage2/jit_grid/20260530T125718Z_seed0_steps20`
 - note: logs/outputs/previews/figures are ignored and not committed.
+## Stage 0 Smoke - 2026-05-30T13:24:23.403281+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+## Stage 0 Smoke - 2026-05-30T13:33:41.848587+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+
+## Stage 2B Timestep Window And Diagnostics - 2026-05-30T13:37:21Z
+
+- current `git rev-parse HEAD`: 9a6c07d370dadb68da94500bbad2632c7bdae8a5
+- implementation status: worktree patch pending; not committed in this turn.
+- scope: JiT fixed-interval whole-block cache analysis only.
+- not implemented: token cache, DeCo cache, PixelDiT/PixelGen, adaptive online policy, calibration, final PixelFlowCache method.
+- new features: active timestep/step windows in `FixedIntervalCachePolicy`; Stage 2B layer specs; per-batch cache entry clearing; repeated timing; velocity/frequency error diagnostics; optional full-on-cache-state probe.
+- validation environment: `conda activate jit`
+- CPU tests: `python scripts/run_stage0_smoke.py` passed; `pytest -q` passed with 45 tests.
+- GPU policy: used one GPU via `PFC_CUDA_DEVICES=0` / `CUDA_VISIBLE_DEVICES=0`.
+- Stage 2B single run: completed.
+- Stage 2B single run dir: `logs/stage2b/jit/20260530T133416Z_seed0_steps20_i2_all`
+- Stage 2B single setting: all 12 JiT blocks, interval 2, active t window `[0.1, 0.8)`, 8 samples, 20 Euler steps, 3 timing repeats, 1 warmup.
+- Stage 2B single median speedup: 1.4877936898875264
+- Stage 2B single no-cache median latency: 1.2261524298228323 sec
+- Stage 2B single cached median latency: 0.8241414371877909 sec
+- Stage 2B single cache hit rate: 0.35
+- Stage 2B single cache stats: 960 total wrapped-block calls, 336 hits, 624 misses, 624 refreshes.
+- Stage 2B single quality: same-seed MSE 0.0011018130462616682; MAE 0.021136298775672913; rel-L2 0.08071035146713257; PSNR 35.5995208090011.
+- Stage 2B single diagnostics: `step_error_stats.jsonl` written with 40 records.
+- Stage 2B fast sweep: completed.
+- Stage 2B sweep dir: `logs/stage2b/jit_sweep/20260530T133455Z_seed0_steps20`
+- Stage 2B best speed-quality row by lowest rel-L2: `all`, interval 2, active t `[0.1, 0.8)`, speedup 1.4890113989899492, rel-L2 0.08071035146713257.
+- Stage 2B fastest row: `all`, interval 2, active t `[0.1, 1.0)`, speedup 1.7517469597350046, rel-L2 0.09124936908483505.
+- Active t max finding: reducing `active_t_max` from 1.0 to 0.8 improved rel-L2 from 0.09124936908483505 to 0.08071035146713257, with expected speedup reduction from 1.7517469597350046 to 1.4890113989899492.
+- Layer group finding in fast sweep: `all` and `suffix:6` had the lowest rel-L2 at 0.08071035146713257; `all` was faster than `suffix:6`, `prefix:6`, and `middle` under the `[0.1, 0.8)` window.
+- Stage 2B plots: generated under ignored `outputs/stage2b/figures/`.
+- Stage 2B validation run: not run in this turn; fast single and fast sweep completed successfully.
+- weights/data status: no new weights downloaded; no datasets scanned for Stage 2B.
+- artifact status: `logs/`, `outputs/`, `ckpts/`, datasets, generated images, and large binaries remain ignored and should not be committed.

@@ -168,7 +168,7 @@ def _sample_jit(
         z = noise[batch_start:batch_end].clone()
         batch_labels = labels[batch_start:batch_end]
         if cache_state is not None:
-            cache_state.clear()
+            cache_state.clear_entries()
 
         for step_idx in range(config.steps):
             t_scalar = timesteps[step_idx]
@@ -226,7 +226,7 @@ def _run_timed(
         with torch.no_grad():
             _sample_jit(model, labels, noise, config, mode=f"{mode}_warmup", cache_state=cache_state)
         if cache_state is not None:
-            cache_state.clear()
+            cache_state.clear_entries()
             cache_state.reset_stats()
     if device.type == "cuda":
         torch.cuda.synchronize(device)

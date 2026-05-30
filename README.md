@@ -1,8 +1,8 @@
 # PixelFlowCache
 
-PixelFlowCache is a research codebase for studying no-cache baselines, profiling, and cache acceleration for pixel-space flow diffusion models. The current implementation status is **Stage 2 fixed-interval JiT block-cache baseline**.
+PixelFlowCache is a research codebase for studying no-cache baselines, profiling, and cache acceleration for pixel-space flow diffusion models. The current implementation status is **Stage 2B JiT timestep-window block-cache analysis**.
 
-Stage 2 implements the first actual compute-skipping baseline: fixed-interval whole-block cache for JiT Transformer blocks. It does not implement token cache, DeCo branch cache, solver-aware cache, frequency-aware cache, or calibration.
+Stage 2 implements the first actual compute-skipping baseline: fixed-interval whole-block cache for JiT Transformer blocks. Stage 2B extends that baseline with timestep windows, layer-group sweeps, repeated timing, and velocity-error diagnostics. The project still does not implement token cache, DeCo cache, adaptive online policy, solver-aware cache, frequency-aware cache, or calibration.
 
 ## Quickstart on this server
 
@@ -58,6 +58,30 @@ python scripts/plot_stage2_jit_cache.py --grid-dir logs/stage2/jit_grid/<run_id>
 ```
 
 See [docs/STAGE2_FIXED_BLOCK_CACHE.md](docs/STAGE2_FIXED_BLOCK_CACHE.md) for details.
+
+## Stage 2B Timestep Windows And Diagnostics
+
+Use one GPU by default:
+
+```bash
+export PFC_CUDA_DEVICES=0
+bash scripts/run_jit_stage2b_cache.sh
+```
+
+Run the fast Stage 2B sweep:
+
+```bash
+export PFC_STAGE2B_SWEEP_FAST=1
+bash scripts/run_jit_stage2b_sweep.sh
+```
+
+Plot Stage 2B sweep results:
+
+```bash
+python scripts/plot_stage2b_jit.py --sweep-dir logs/stage2b/jit_sweep/<run_id>
+```
+
+See [docs/STAGE2B_TIMESTEP_WINDOW_AND_DIAGNOSTICS.md](docs/STAGE2B_TIMESTEP_WINDOW_AND_DIAGNOSTICS.md) for details.
 
 The default server paths are:
 

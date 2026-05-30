@@ -17,6 +17,10 @@ class FixedIntervalCachePolicy:
         cache_cond: bool = True,
         cache_uncond: bool = True,
         solver_stages: set[str] | None = None,
+        active_t_min: float | None = None,
+        active_t_max: float | None = None,
+        active_step_min: int | None = None,
+        active_step_max: int | None = None,
     ) -> None:
         if interval <= 0:
             raise ValueError("interval must be positive")
@@ -34,6 +38,10 @@ class FixedIntervalCachePolicy:
         self.cache_cond = cache_cond
         self.cache_uncond = cache_uncond
         self.solver_stages = set(solver_stages) if solver_stages is not None else {"euler"}
+        self.active_t_min = active_t_min
+        self.active_t_max = active_t_max
+        self.active_step_min = active_step_min
+        self.active_step_max = active_step_max
 
     def should_cache_module(self, module_name: str) -> bool:
         return self.cache_modules is None or module_name in self.cache_modules
@@ -45,7 +53,14 @@ class FixedIntervalCachePolicy:
             return self.cache_uncond
         return True
 
-    def _active_for_context(self, step_idx: int, module_name: str, cfg_branch: str, solver_stage: str) -> bool:
+    def _active_for_context(
+        self,
+        step_idx: int,
+        module_name: str,
+        cfg_branch: str,
+        solver_stage: str,
+        t: float | None = None,
+    ) -> bool:
         if not self.enabled:
             return False
         if not self.should_cache_module(module_name):
@@ -60,7 +75,26 @@ class FixedIntervalCachePolicy:
             return False
         if self.cooldown_steps and self.max_steps is not None and step_idx >= self.max_steps - self.cooldown_steps:
             return False
+        if t is not None:
+            if self.active_t_min is not None and t < self.active_t_min:
+                return False
+            if self.active_t_max is not None and t >= self.active_t_max:
+                return False
+        if self.active_step_min is not None and step_idx < self.active_step_min:
+            return False
+        if self.active_step_max is not None and step_idx >= self.active_step_max:
+            return False
         return True
+
+    def is_active(
+        self,
+        step_idx: int,
+        t: float,
+        module_name: str,
+        cfg_branch: str,
+        solver_stage: str,
+    ) -> bool:
+        return self._active_for_context(step_idx, module_name, cfg_branch, solver_stage, t=t)
 
     def should_refresh(
         self,
@@ -70,8 +104,7 @@ class FixedIntervalCachePolicy:
         cfg_branch: str,
         solver_stage: str,
     ) -> bool:
-        del t
-        if not self._active_for_context(step_idx, module_name, cfg_branch, solver_stage):
+        if not self._active_for_context(step_idx, module_name, cfg_branch, solver_stage, t=t):
             return True
         if self.interval == 1:
             return True
@@ -88,7 +121,7 @@ class FixedIntervalCachePolicy:
         solver_stage: str,
     ) -> bool:
         return (
-            self._active_for_context(step_idx, module_name, cfg_branch, solver_stage)
+            self._active_for_context(step_idx, module_name, cfg_branch, solver_stage, t=t)
             and not self.should_refresh(step_idx, t, module_name, cfg_branch, solver_stage)
         )
 
@@ -104,6 +137,10 @@ class FixedIntervalCachePolicy:
             "cache_cond": self.cache_cond,
             "cache_uncond": self.cache_uncond,
             "solver_stages": sorted(self.solver_stages),
+            "active_t_min": self.active_t_min,
+            "active_t_max": self.active_t_max,
+            "active_step_min": self.active_step_min,
+            "active_step_max": self.active_step_max,
         }
 
     @classmethod

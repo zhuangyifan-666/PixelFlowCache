@@ -27,7 +27,23 @@ def parse_layer_list(spec: str, num_blocks: int) -> list[int]:
         return list(range(num_blocks // 4, (num_blocks * 3) // 4))
     if normalized == "late":
         return list(range((num_blocks * 3) // 4, num_blocks))
-    if normalized.startswith("topk:"):
+    if normalized.startswith("prefix:"):
+        n = _parse_nonnegative_int(normalized.split(":", 1)[1], spec)
+        return list(range(min(n, num_blocks)))
+    if normalized.startswith("suffix:"):
+        n = _parse_nonnegative_int(normalized.split(":", 1)[1], spec)
+        start = max(0, num_blocks - n)
+        return list(range(start, num_blocks))
+    if normalized.startswith("range:"):
+        return _parse_range(normalized, num_blocks)
+    if normalized.startswith("every:"):
+        stride = _parse_positive_int(normalized.split(":", 1)[1], spec)
+        return list(range(0, num_blocks, stride))
+    if normalized.startswith("complement:"):
+        inner_spec = stripped.split(":", 1)[1]
+        inner = set(parse_layer_list(inner_spec, num_blocks))
+        return [idx for idx in range(num_blocks) if idx not in inner]
+    if normalized.startswith("topk:") or normalized.startswith("stage1top:"):
         return _parse_topk(stripped, num_blocks)
     if "," in normalized or normalized.isdigit():
         layers = []
@@ -43,6 +59,32 @@ def parse_layer_list(spec: str, num_blocks: int) -> list[int]:
             layers.append(layer_id)
         return sorted(dict.fromkeys(layers))
     raise ValueError(f"Unsupported layer spec: {spec}")
+
+
+def _parse_nonnegative_int(value: str, spec: str) -> int:
+    if not value.isdigit():
+        raise ValueError(f"Expected non-negative integer in layer spec: {spec}")
+    return int(value)
+
+
+def _parse_positive_int(value: str, spec: str) -> int:
+    parsed = _parse_nonnegative_int(value, spec)
+    if parsed <= 0:
+        raise ValueError(f"Expected positive integer in layer spec: {spec}")
+    return parsed
+
+
+def _parse_range(spec: str, num_blocks: int) -> list[int]:
+    parts = spec.split(":")
+    if len(parts) != 3:
+        raise ValueError("range spec must be range:<start>:<end>")
+    start = _parse_nonnegative_int(parts[1], spec)
+    end = _parse_nonnegative_int(parts[2], spec)
+    if start > end:
+        raise ValueError(f"Range start must be <= end in layer spec: {spec}")
+    if end > num_blocks:
+        raise ValueError(f"Range end {end} out of range for {num_blocks} blocks")
+    return list(range(start, end))
 
 
 def _parse_topk(spec: str, num_blocks: int) -> list[int]:

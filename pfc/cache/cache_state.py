@@ -116,8 +116,11 @@ class RuntimeCacheState:
         self.entries[key] = entry
         return entry
 
-    def clear(self) -> None:
+    def clear_entries(self) -> None:
         self.entries.clear()
+
+    def clear(self) -> None:
+        self.clear_entries()
 
     def reset_stats(self) -> None:
         self.stats = CacheStats()
