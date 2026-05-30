@@ -55,9 +55,35 @@ def test_feature_recorder_tracks_cond_uncond_previous_separately(tmp_path: Path)
     writer.close()
 
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert records[0]["cfg_branch"] == "cond"
+    assert "temporal_delta" not in records[0]
+    assert records[1]["cfg_branch"] == "uncond"
     assert "temporal_delta" not in records[1]
     assert records[2]["cfg_branch"] == "cond"
     assert records[2]["temporal_delta"]["rel_l2_delta"] == 1.0
+
+
+def test_feature_recorder_can_use_legacy_module_only_previous_key(tmp_path: Path) -> None:
+    model = nn.Sequential(nn.Identity())
+    path = tmp_path / "feature_stats.jsonl"
+    writer = JsonlWriter(path)
+    recorder = FeatureRecorder(
+        module_filter=lambda name, module: name == "0",
+        writer=writer,
+        model_name="tiny",
+        previous_key_fields=("module_name",),
+    )
+    recorder.attach(model)
+    recorder.set_context(0, 0.0, cfg_branch="cond")
+    model(torch.ones(1, 4))
+    recorder.set_context(0, 0.0, cfg_branch="uncond")
+    model(torch.zeros(1, 4))
+    recorder.remove()
+    writer.close()
+
+    records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert "temporal_delta" not in records[0]
+    assert "temporal_delta" in records[1]
 
 
 def test_feature_recorder_split_cfg_cat_batch(tmp_path: Path) -> None:

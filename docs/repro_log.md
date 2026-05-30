@@ -155,3 +155,24 @@ This file is updated by Stage 0 inspection, smoke, and baseline scripts.
 - Stage 2 candidate export: generated `stage2_cache_candidates.csv` for the original JiT run, original DeCo run, and cleanup JiT rerun.
 - logs/outputs status: `logs/` and `outputs/` are ignored and are not committed.
 - scope: profiling cleanup only; no cache acceleration, block cache, token cache, branch cache, solver-aware cache, or calibration was implemented.
+
+## Stage 1 Cleanup Verified - 2026-05-30T12:22:53Z
+
+- current `git rev-parse HEAD`: 3c4f0a6d798c87dd5e31dc9812f110da4fa33272
+- pytest status: `pytest -q` passed in the activated `jit` environment with 18 tests.
+- smoke status: `python scripts/run_stage0_smoke.py` passed.
+- FeatureRecorder cond/uncond keying fixed: yes; default `previous_key_fields=("module_name", "cfg_branch")` separates branch-local previous tensors.
+- FeatureRecorder legacy keying: available via `previous_key_fields=("module_name",)`.
+- FeatureRecorder `split_batch_dim0` support added: yes; it records whole-tensor stats plus uncond, cond, and cond-minus-uncond summaries without saving full tensors.
+- `categorize_deco_module` added: yes; import check returned `block` for `blocks.7` and `norm_or_modulation` for `blocks.7.adaLN_modulation`.
+- `export_stage2_cache_candidates.py` import/run status: passed on existing local JiT and DeCo Stage 1 run dirs.
+- candidate export outputs checked:
+  - `logs/stage1/jit/20260530T121145Z_seed0_steps10/stage2_cache_candidates.csv`
+  - `logs/stage1/deco/20260530T114327Z_seed0_steps10/stage2_cache_candidates.csv`
+- GPU profiling status in this cleanup turn: not rerun.
+- artifact status: Stage 1 profiling artifacts remain ignored under `logs/` and `outputs/`; checkpoints, datasets, generated images, and large binaries are not committed.
+- scope: bugfix cleanup only; no cache acceleration, Stage 2 cache implementation, block cache, token cache, branch cache, solver-aware cache, or calibration was implemented.
+## Stage 0 Smoke - 2026-05-30T12:22:22.334913+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula

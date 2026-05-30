@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from pfc.profiling.module_selectors import categorize_deco_module
+from pfc.profiling.module_selectors import categorize_deco_module, is_deco_stage2_cache_candidate
 
 
 def _read_csv(path: Path) -> list[dict[str, str]]:
@@ -60,10 +60,19 @@ def _feature_rows_from_jsonl(run_dir: Path) -> list[dict[str, Any]]:
 
 
 def _load_feature_rows(run_dir: Path) -> list[dict[str, Any]]:
+    if not run_dir.exists():
+        raise FileNotFoundError(f"Run directory does not exist: {run_dir}")
+    if not run_dir.is_dir():
+        raise NotADirectoryError(f"Run path is not a directory: {run_dir}")
     csv_rows = _read_csv(run_dir / "feature_delta_by_module.csv")
     if csv_rows:
         return csv_rows
-    return _feature_rows_from_jsonl(run_dir)
+    jsonl_path = run_dir / "feature_stats.jsonl"
+    if jsonl_path.exists():
+        return _feature_rows_from_jsonl(run_dir)
+    raise FileNotFoundError(
+        f"Expected {run_dir / 'feature_delta_by_module.csv'} or {jsonl_path}; run Stage 1 summary first."
+    )
 
 
 def _is_jit(run_dir: Path) -> bool:
@@ -81,16 +90,7 @@ def _is_jit_block(module_name: str) -> bool:
 
 
 def _is_deco_cacheable_level(module_name: str, category: str) -> bool:
-    lower = module_name.lower()
-    if any(token in lower for token in ("norm", "modulation", "adaln", "q_norm", "k_norm", ".attn", ".mlp", ".linear")):
-        return False
-    if category == "block":
-        return bool(re.fullmatch(r"(?:cond_)?blocks\.\d+", module_name))
-    if category == "decoder":
-        return bool(re.fullmatch(r"dec_net(?:\.res_blocks\.\d+)?", module_name))
-    if category == "final":
-        return True
-    return False
+    return category in {"block", "decoder", "final"} and is_deco_stage2_cache_candidate(module_name)
 
 
 def _policy(mean_delta: float) -> str:
@@ -106,16 +106,21 @@ def export_candidates(run_dir: Path) -> Path:
     jit = _is_jit(run_dir)
     output_rows: list[dict[str, Any]] = []
     for row in rows:
+        if "module_name" not in row:
+            raise ValueError("Feature summary row is missing required column: module_name")
         module_name = str(row["module_name"])
-        mean_delta = float(row["mean_rel_l2_delta"])
-        median_delta = float(row["median_rel_l2_delta"])
+        try:
+            mean_delta = float(row["mean_rel_l2_delta"])
+            median_delta = float(row["median_rel_l2_delta"])
+        except KeyError as exc:
+            raise ValueError(f"Feature summary row for {module_name} is missing required delta columns") from exc
         record_count = int(float(row.get("count", row.get("record_count", 0))))
         if jit:
             if not _is_jit_block(module_name):
                 continue
             category = "block"
         else:
-            category = categorize_deco_module(module_name, object())  # type: ignore[arg-type]
+            category = str(row.get("module_category") or categorize_deco_module(module_name))
             if not _is_deco_cacheable_level(module_name, category):
                 continue
         output_rows.append(
@@ -150,7 +155,10 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-dir", required=True, type=Path)
     args = parser.parse_args()
-    out_path = export_candidates(args.run_dir.resolve())
+    try:
+        out_path = export_candidates(args.run_dir.resolve())
+    except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
+        parser.exit(2, f"error: {exc}\n")
     print(out_path)
     return 0
 

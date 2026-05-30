@@ -22,6 +22,7 @@ class FeatureRecorder:
         previous_dtype: str = "float16",
         previous_key_fields: tuple[str, ...] = ("module_name", "cfg_branch"),
         split_batch_dim0: bool = False,
+        split_batch_extra_keys: tuple[str, ...] = ("cfg_cat_batch_size", "batch_size"),
     ) -> None:
         self.module_filter = module_filter
         self.writer = writer
@@ -31,6 +32,7 @@ class FeatureRecorder:
         self.previous_dtype = previous_dtype
         self.previous_key_fields = previous_key_fields
         self.split_batch_dim0 = split_batch_dim0
+        self.split_batch_extra_keys = split_batch_extra_keys
         self.handles: list[Any] = []
         self.previous: dict[str, torch.Tensor] = {}
         self.context: dict[str, Any] = {
@@ -102,9 +104,7 @@ class FeatureRecorder:
                 if isinstance(module_categories, dict) and module_name in module_categories:
                     record["module_category"] = module_categories[module_name]
             if self.split_batch_dim0:
-                split_stats = self._summarize_split_batch(tensor, module_name)
-                if split_stats:
-                    record["split_batch_dim0"] = split_stats
+                record["split_batch_dim0"] = self._summarize_split_batch(tensor, module_name)
             previous_key = self._previous_key(module_name)
             previous = self.previous.get(previous_key)
             if previous is not None:
@@ -117,27 +117,44 @@ class FeatureRecorder:
         return hook
 
     def _previous_key(self, module_name: str) -> str:
-        values: dict[str, Any] = {
-            "module_name": module_name,
-            "cfg_branch": self.context.get("cfg_branch", "unknown"),
-            "solver_stage": self.context.get("solver_stage", "unknown"),
-        }
-        return "::".join(str(values.get(field, "")) for field in self.previous_key_fields)
+        fields = []
+        for field in self.previous_key_fields:
+            if field == "module_name":
+                fields.append(module_name)
+            else:
+                fields.append(str(self.context.get(field, "unknown")))
+        return "::".join(fields)
 
-    def _summarize_split_batch(self, tensor: torch.Tensor, module_name: str) -> dict[str, Any] | None:
+    def _summarize_split_batch(self, tensor: torch.Tensor, module_name: str) -> dict[str, Any]:
         extra = self.context.get("extra") or {}
-        batch_size = extra.get("cfg_cat_batch_size", extra.get("batch_size"))
-        if not isinstance(batch_size, int) or batch_size <= 0:
-            return None
+        batch_size = None
+        batch_key = None
+        for key in self.split_batch_extra_keys:
+            value = extra.get(key)
+            if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+                batch_size = value
+                batch_key = key
+                break
+        if batch_size is None:
+            return {
+                "skipped": True,
+                "reason": f"missing positive integer batch size in extra keys {list(self.split_batch_extra_keys)}",
+            }
         if tensor.ndim == 0 or tensor.shape[0] != batch_size * 2:
-            return None
+            actual = [] if tensor.ndim == 0 else [int(dim) for dim in tensor.shape]
+            return {
+                "skipped": True,
+                "reason": f"expected dim0 == 2 * batch_size from extra[{batch_key}]",
+                "batch_size": batch_size,
+                "shape": actual,
+            }
         uncond = tensor[:batch_size]
         cond = tensor[batch_size:]
         return {
             "batch_size": batch_size,
-            "uncond": summarize_tensor(uncond, name=f"{module_name}.uncond"),
-            "cond": summarize_tensor(cond, name=f"{module_name}.cond"),
-            "cond_minus_uncond": summarize_tensor(cond - uncond, name=f"{module_name}.cond_minus_uncond"),
+            "uncond": summarize_tensor(uncond, name=f"{module_name}:uncond"),
+            "cond": summarize_tensor(cond, name=f"{module_name}:cond"),
+            "cond_minus_uncond": summarize_tensor(cond - uncond, name=f"{module_name}:cond_minus_uncond"),
         }
 
     def _store_previous(self, tensor: torch.Tensor) -> torch.Tensor:

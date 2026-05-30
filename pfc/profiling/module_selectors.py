@@ -23,18 +23,30 @@ def generic_transformer_block_filter(name: str, module: nn.Module) -> bool:
     return block_like or class_like
 
 
-def categorize_deco_module(name: str, module: nn.Module) -> str:
+def categorize_deco_module(name: str, module: nn.Module | None = None) -> str:
     lower = name.lower()
-    class_name = module.__class__.__name__.lower()
-    if any(token in lower for token in ("norm", "modulation", "adaln", "q_norm", "k_norm")):
+    class_name = module.__class__.__name__.lower() if module is not None else ""
+    if any(token in lower for token in ("adaln", "modulation", "norm", "q_norm", "k_norm")):
         return "norm_or_modulation"
+    if "decoder" in lower or lower.startswith("dec_net") or ".decoder" in lower:
+        if "final" in lower or "head" in lower:
+            return "final"
+        return "decoder"
     if "final" in lower or "head" in lower:
         return "final"
-    if "decoder" in lower or lower.startswith("dec_net") or ".decoder" in lower:
-        return "decoder"
     if "blocks" in lower or "cond_blocks" in lower or "block" in class_name:
         return "block"
     return "other"
+
+
+def is_deco_stage2_cache_candidate(name: str, module: nn.Module | None = None) -> bool:
+    category = categorize_deco_module(name, module)
+    lower = name.lower()
+    if category == "norm_or_modulation":
+        return False
+    if any(token in lower for token in ("norm", "adaln", "modulation", "embed", "dropout")):
+        return False
+    return category in {"block", "decoder", "final"}
 
 
 def select_deco_candidate_modules(net: nn.Module) -> list[tuple[str, nn.Module]]:
