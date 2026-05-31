@@ -273,3 +273,57 @@ This file is updated by Stage 0 inspection, smoke, and baseline scripts.
 - Stage 2B validation run: not run in this turn; fast single and fast sweep completed successfully.
 - weights/data status: no new weights downloaded; no datasets scanned for Stage 2B.
 - artifact status: `logs/`, `outputs/`, `ckpts/`, datasets, generated images, and large binaries remain ignored and should not be committed.
+
+## Stage 0 Smoke - 2026-05-31T05:40:33.419217+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+
+## Stage 0 Smoke - 2026-05-31T05:49:35.669045+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+
+## Stage 2C JiT Window Ablation And Probe - 2026-05-31T05:50:36Z
+
+- current `git rev-parse HEAD`: cd45f83d71f1ebd5e9c886c9154a3b3122bf40da
+- implementation status: worktree patch pending; not committed in this turn.
+- scope: JiT fixed-interval whole-block cache window ablation and local full-probe diagnostics only.
+- not implemented: token cache, DeCo cache, adaptive online policy, solver-aware cache, calibration, final PixelFlowCache method.
+- validation environment: `conda activate jit`
+- CPU tests: `python scripts/run_stage0_smoke.py` passed; `pytest -q` passed with 51 tests.
+- GPU policy attempted: one GPU via `PFC_CUDA_DEVICES=0` / `CUDA_VISIBLE_DEVICES=0`.
+- `nvidia-smi` status: failed with driver communication error, so Stage 2C GPU runs were not started.
+- Stage 2C window ablation status: blocked before model load; see ignored log `logs/stage2c/jit_stage2c_window_ablation_stdout.log`.
+- Stage 2C probe status: blocked before model load; see ignored log `logs/stage2c/jit_stage2c_probe_stdout.log`.
+- Stage 2C validation status: not run because the required GPU check failed.
+- Plot status: empty-input check passed; full plots were not generated because no Stage 2C window/probe run directories were produced.
+- artifact status: `logs/`, `outputs/`, `ckpts/`, datasets, generated images, and large binaries remain ignored and should not be committed.
+- next command after GPU driver is available: `export PFC_CUDA_DEVICES=0; bash scripts/run_jit_stage2c_window_ablation.sh && bash scripts/run_jit_stage2c_probe.sh`
+
+## Stage 2C JiT Window Ablation And Probe Results - 2026-05-31T06:15:31Z
+
+- current `git rev-parse HEAD`: cd45f83d71f1ebd5e9c886c9154a3b3122bf40da
+- GPU policy used: one GPU via `PFC_CUDA_DEVICES=0` / `CUDA_VISIBLE_DEVICES=0`.
+- Stage 2C window ablation run dir: `logs/stage2c/jit_window_ablation/20260531T055834Z_seed0_steps20`.
+- Stage 2C window ablation rows: 10 data rows plus header in `window_ablation_results.csv`.
+- Best Stage 2C debug same-seed rel-L2 row: all blocks, interval 2, active t `[0.2, 0.8)`, speedup 1.3894, hit rate 0.3000, rel-L2 0.032933.
+- Fastest Stage 2C debug row: all blocks, interval 2, active t `[0.1, 1.0)`, speedup 1.7304, hit rate 0.4500, rel-L2 0.091249.
+- Boundary finding: increasing `active_t_min` from 0.1 to 0.2 improved rel-L2 from 0.080710 to 0.032933 but reduced speedup from 1.4880 to 1.3894.
+- Boundary finding: increasing `active_t_max` from 0.7 to 1.0 improved speedup from 1.3934 to 1.7304 but worsened rel-L2 from 0.079128 to 0.091249.
+- Interval finding on the selected debug best window `[0.2, 0.8)`: interval 2 had rel-L2 0.032933 and speedup 1.3894; interval 3 had rel-L2 0.080137 and speedup 1.6055.
+- Stage 2C probe run dir: `logs/stage2c/jit_probe/20260531T060052Z_seed0_steps20_i2_all`.
+- Stage 2C probe setting: all blocks, interval 2, active t `[0.1, 0.8)`, 4 samples, 20 Euler steps.
+- Stage 2C probe result: speedup 1.4876, hit rate 0.3500, final rel-L2 0.083956.
+- Probe diagnostics: mean trajectory rel-L2 0.044883; mean local probe rel-L2 0.010539; max local probe rel-L2 0.065953; amplification/probe correlation -0.233014.
+- Probe dominance: accumulated trajectory drift dominated local probe error.
+- Stage 2C validation run dir: `logs/stage2c/jit_validate/20260531T060229Z_seed0_steps50`.
+- Stage 2C validation rows: no-cache reference, all/i2 `[0.1,0.8)`, all/i2 `[0.1,1.0)`, all/i3 `[0.1,0.8)`.
+- Stage 2C validation result: all/i2 `[0.1,0.8)` had speedup 1.4687 and rel-L2 0.040435; all/i2 `[0.1,1.0)` had speedup 1.7079 and rel-L2 0.043077; all/i3 `[0.1,0.8)` had speedup 1.7060 and rel-L2 0.070958.
+- Validation caveat: the debug-best `[0.2,0.8)` window was not included in this validation run because `PFC_STAGE2C_BEST_CONFIG_JSON` was not provided.
+- Stage 2C figures generated under ignored `outputs/stage2c/figures/`.
+- artifact status: `logs/`, `outputs/`, `ckpts/`, datasets, generated images, and large binaries remain ignored and should not be committed.
+## Stage 0 Smoke - 2026-05-31T05:58:19.433924+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
