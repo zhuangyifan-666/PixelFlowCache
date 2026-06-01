@@ -396,3 +396,61 @@ This file is updated by Stage 0 inspection, smoke, and baseline scripts.
 
 - smoke test passed: True
 - checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+## Stage 0 Smoke - 2026-06-01T06:40:02.233554+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+
+## Stage 3A Implementation Start - 2026-06-01T06:51:10Z
+
+- current `git rev-parse HEAD`: 619c4a0a3fced8346dcec4effec157590671afbd
+- implementation status: worktree patch pending; not committed in this turn.
+- scope: JiT BackboneCache preset benchmark versus reduced-step no-cache baselines.
+- not implemented: token cache, DeCo cache, adaptive online policy, solver-aware cache, calibration, final PixelFlowCache method.
+- validation environment: `conda run -n jit`
+- initial CPU checks: `python scripts/run_stage0_smoke.py` passed; `pytest -q` passed with 58 tests before edits.
+- planned benchmark: cache presets `quality_t02_08`, `speed_t02_10`, first-hit-delay variants, `aggressive_i3_t02_08`, plus reduced-step no-cache 30/35/40.
+- artifact status: no new weights downloaded; logs, outputs, checkpoints, datasets, generated images, and large binaries remain ignored.
+
+## Stage 3A Implementation Check - 2026-06-01T06:54:22Z
+
+- current `git rev-parse HEAD`: 619c4a0a3fced8346dcec4effec157590671afbd
+- implementation status: worktree patch pending; not committed in this turn.
+- new preset abstraction: `pfc/cache/backbone_cache_presets.py` with required JiT BackboneCache presets.
+- benchmark scripts added: reduced-step baseline, unified BackboneCache benchmark, optional 32-sample subset, plotting, and paper-table generation.
+- validation environment: `conda run -n jit`
+- `python scripts/run_stage0_smoke.py`: passed.
+- `pytest -q`: passed with 67 tests.
+- Stage 3A benchmark status: attempted with one GPU via `PFC_CUDA_DEVICES=0`, but this session's `nvidia-smi` failed before model load; see ignored log `logs/stage3a/jit_stage3a_backbone_benchmark_stdout.log`.
+- Plot status: empty-input check passed; full plots require a completed Stage 3A benchmark run directory.
+- benchmark result status: pending GPU-visible shell.
+- next GPU-visible commands: `export PFC_CUDA_DEVICES=0; bash scripts/run_jit_stage3a_backbone_benchmark.sh; BENCHMARK_DIR="$(ls -td logs/stage3a/jit_backbone_benchmark/* | head -n 1)"; python scripts/plot_stage3a_jit.py --benchmark-dir "$BENCHMARK_DIR"; python scripts/make_stage3a_report_tables.py --benchmark-dir "$BENCHMARK_DIR"`.
+- artifact status: no new weights downloaded; logs, outputs, checkpoints, datasets, generated images, and large binaries remain ignored.
+## Stage 0 Smoke - 2026-06-01T06:53:32.025768+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+
+## Stage 3A JiT BackboneCache Benchmark Results - 2026-06-01T07:08:13Z
+
+- current `git rev-parse HEAD`: 619c4a0a3fced8346dcec4effec157590671afbd
+- implementation status: worktree patch pending; not committed in this turn.
+- GPU policy used by benchmark wrapper: one GPU via `PFC_CUDA_DEVICES=0` / `CUDA_VISIBLE_DEVICES=0`.
+- Stage 3A benchmark run dir: `logs/stage3a/jit_backbone_benchmark/20260601T065811Z_seed0_ref50`.
+- benchmark scope: JiT 50-step no-cache reference, BackboneCache presets, and reduced-step no-cache baselines using matched seeds/noise/labels.
+- seeds: 0, 1, 2; samples per seed: 16; reference steps: 50.
+- report files: `benchmark_results.csv`, `benchmark_aggregate.csv`, `summary.md`, `paper_table.md`, and `paper_table.csv`.
+- figures generated under ignored `outputs/stage3a/figures/`: speed-quality scatter, speedup bar, rel-L2 bar, cache hit-rate bar, and frequency-delta bar.
+- Best quality cache preset: `quality_t02_08`, speedup mean 1.3965, rel-L2 mean/std 0.022393/0.006337, PSNR mean 46.3436, hit rate 0.3000.
+- Warmup-equivalent cache preset: `quality_t01_08_w2`, speedup mean 1.3909, rel-L2 mean/std 0.022393/0.006337, PSNR mean 46.3436, hit rate 0.3000.
+- Best speed-quality cache preset: `speed_t02_10`, speedup mean 1.6072, rel-L2 mean/std 0.027789/0.005509, PSNR mean 44.2968, hit rate 0.4000.
+- Aggressive cache preset: `aggressive_i3_t02_08`, speedup mean 1.5533, rel-L2 mean/std 0.033563/0.006292, PSNR mean 42.6470, hit rate 0.3800.
+- Reduced-step baselines: 30 steps speedup 1.6607 rel-L2 0.181010; 35 steps speedup 1.4237 rel-L2 0.133187; 40 steps speedup 1.2445 rel-L2 0.111390.
+- Main Stage 3A finding: at comparable speed, BackboneCache preserves the 50-step trajectory much better than reducing no-cache solver steps; for example `quality_t02_08` has rel-L2 0.022393 at speedup 1.3965, compared with reduced-35 rel-L2 0.133187 at speedup 1.4237.
+- post-check `conda run -n jit python scripts/run_stage0_smoke.py`: passed.
+- post-check `conda run -n jit pytest -q`: passed with 67 tests.
+- artifact status: `logs/`, `outputs/`, `ckpts/`, datasets, generated images, and large binaries remain ignored and should not be committed.
+## Stage 0 Smoke - 2026-06-01T07:08:52.332341+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula

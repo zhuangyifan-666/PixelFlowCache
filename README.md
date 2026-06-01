@@ -1,8 +1,8 @@
 # PixelFlowCache
 
-PixelFlowCache is a research codebase for studying no-cache baselines, profiling, and cache acceleration for pixel-space flow diffusion models. The current implementation status is **Stage 2D JiT fixed whole-backbone cache validation**.
+PixelFlowCache is a research codebase for studying no-cache baselines, profiling, and cache acceleration for pixel-space flow diffusion models. The current implementation status is **Stage 3A JiT BackboneCache versus reduced-step benchmark**.
 
-Stage 2 implements the first actual compute-skipping baseline: fixed-interval whole-block cache for JiT Transformer blocks. Stage 2B extends that baseline with timestep windows, layer-group sweeps, repeated timing, and velocity-error diagnostics. Stage 2C focuses on controlled JiT window ablations and local-error probes. Stage 2D validates the best JiT fixed whole-backbone cache windows and seed stability. The project still does not implement token cache, DeCo cache, adaptive online policy, solver-aware cache, frequency-aware cache, or calibration.
+Stage 2 implements the first actual compute-skipping baseline: fixed-interval whole-block cache for JiT Transformer blocks. Stage 2B extends that baseline with timestep windows, layer-group sweeps, repeated timing, and velocity-error diagnostics. Stage 2C focuses on controlled JiT window ablations and local-error probes. Stage 2D validates the best JiT fixed whole-backbone cache windows and seed stability. Stage 3A benchmarks JiT BackboneCache presets against reduced-step no-cache baselines. The project still does not implement token cache, DeCo cache, adaptive online policy, solver-aware cache, frequency-aware cache, or calibration.
 
 ## Quickstart on this server
 
@@ -135,6 +135,32 @@ python scripts/plot_stage2d_jit.py \
 ```
 
 See [docs/STAGE2D_VALIDATION_AND_SEED_STABILITY.md](docs/STAGE2D_VALIDATION_AND_SEED_STABILITY.md) for details.
+
+## Stage 3A JiT BackboneCache Benchmark
+
+Use one GPU by default:
+
+```bash
+export PFC_CUDA_DEVICES=0
+bash scripts/run_jit_stage3a_backbone_benchmark.sh
+```
+
+Plot and generate report tables:
+
+```bash
+BENCHMARK_DIR="$(ls -td logs/stage3a/jit_backbone_benchmark/* | head -n 1)"
+python scripts/plot_stage3a_jit.py --benchmark-dir "$BENCHMARK_DIR"
+python scripts/make_stage3a_report_tables.py --benchmark-dir "$BENCHMARK_DIR"
+```
+
+Optional reduced-step only and 32-sample subset:
+
+```bash
+bash scripts/run_jit_stage3a_reduced_steps.sh
+bash scripts/run_jit_stage3a_backbone_benchmark_32samples.sh
+```
+
+See [docs/STAGE3A_JIT_BACKBONE_CACHE_BENCHMARK.md](docs/STAGE3A_JIT_BACKBONE_CACHE_BENCHMARK.md) for details.
 
 The default server paths are:
 
