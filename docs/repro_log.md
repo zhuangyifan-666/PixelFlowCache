@@ -454,3 +454,54 @@ This file is updated by Stage 0 inspection, smoke, and baseline scripts.
 
 - smoke test passed: True
 - checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+## Stage 0 Smoke - 2026-06-01T07:22:18.294159+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+
+## Stage 3B DeCo Direct-Velocity Cache Implementation Check - 2026-06-01T07:52:50Z
+
+- current `git rev-parse HEAD`: 9787ff60e3a6e6dde8dc73e29135e451bc07a3d1
+- implementation status: worktree patch pending; not committed in this turn.
+- scope: DeCo direct-v-pred whole-unit cache feasibility, module inspection, fixed-interval cache run, reduced-step baseline, benchmark sweep, and plotting scripts.
+- not implemented: token cache, adaptive online cache, solver-aware cache, calibration, or final PixelFlowCache policy.
+- DeCo checkpoint detected: `ckpts/DeCo/imagenet256_epoch800/imagenet256_epoch800.ckpt`.
+- `conda run -n deco python scripts/run_stage0_smoke.py`: passed.
+- `conda run -n deco pytest -q`: failed because the `deco` environment does not have `pytest` installed.
+- post-check `conda run -n jit python scripts/run_stage0_smoke.py`: passed.
+- post-check `conda run -n jit pytest -q`: passed with 72 tests.
+- static checks: `python -m py_compile` on Stage 3B Python files passed; `bash -n` on Stage 3B wrappers passed.
+- DeCo inspect run dir: `logs/stage3b/deco_inspect/20260601T074842Z_seed0_steps20_inspect`.
+- DeCo inspect result: 496 named modules, 427 listed inspection rows, 32 safe cacheable units.
+- Safe cacheable units by category: 28 `backbone_block`, 3 `decoder_block`, 1 `final_head`.
+- Excluded inspection categories: 179 `norm_or_modulation`, 216 `tiny_module`.
+- DeCo cache run status: attempted through `bash scripts/run_deco_stage3b_cache.sh`, but this session's `nvidia-smi` failed before model load; see ignored log `logs/stage3b/deco_stage3b_cache_stdout.log`.
+- DeCo benchmark status: attempted through `bash scripts/run_deco_stage3b_benchmark.sh`, but this session's `nvidia-smi` failed before model load; see ignored log `logs/stage3b/deco_stage3b_benchmark_stdout.log`.
+- GPU blocker: `NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver`.
+- Next GPU-visible commands: `export PFC_CUDA_DEVICES=0; bash scripts/run_deco_stage3b_cache.sh; bash scripts/run_deco_stage3b_benchmark.sh; BENCHMARK_DIR="$(ls -td logs/stage3b/deco_benchmark/* | head -n 1)"; python scripts/plot_stage3b_deco.py --benchmark-dir "$BENCHMARK_DIR"`.
+- new weights downloaded: none.
+- artifact status: `logs/`, `outputs/`, `ckpts/`, datasets, generated images, and large binaries remain ignored and should not be committed.
+
+## Stage 3B DeCo Direct-Velocity Cache Results - 2026-06-01T08:05:23Z
+
+- current `git rev-parse HEAD`: 9787ff60e3a6e6dde8dc73e29135e451bc07a3d1
+- implementation status: worktree patch pending; not committed in this turn.
+- GPU policy used by user-run wrappers: one GPU via `PFC_CUDA_DEVICES=0` / `CUDA_VISIBLE_DEVICES=0`.
+- DeCo inspect run dir: `logs/stage3b/deco_inspect/20260601T074842Z_seed0_steps20_inspect`.
+- DeCo cache run dir: `logs/stage3b/deco/20260601T075825Z_seed0_steps20_i2-backbone-blocks`.
+- DeCo benchmark run dir: `logs/stage3b/deco_benchmark/20260601T075857Z_seed0_steps20_benchmark`.
+- Benchmark setting: seed 0, 8 samples, 20-step no-cache reference, reduced-step baselines 12/15/18.
+- Standalone cache run: `backbone_blocks`, interval 2, active t `[0.2,1.0)`, 28 wrapped modules, speedup 1.0692, hit rate 0.4000, rel-L2 0.154051.
+- Best benchmark speed-quality cache: `all_candidates_i2_t02_10`, speedup 1.5928, rel-L2 0.072756, MSE 0.00080664, PSNR 36.9538, hit rate 0.4000.
+- Best quality cache rows: `all_candidates_i2_t02_10`, `decoder_i2_t02_10`, and `final_i2_t02_10` tied at rel-L2 0.072756 in this debug run; their speedups were 1.5928, 1.0511, and 1.0089.
+- Backbone-only cache rows: `[0.2,0.8)` speedup 1.3172 rel-L2 0.102509; `[0.2,1.0)` speedup 1.4727 rel-L2 0.154051.
+- Reduced-step baselines: 12 steps speedup 1.6530 rel-L2 0.259579; 15 steps speedup 1.3285 rel-L2 0.210121; 18 steps speedup 1.1069 rel-L2 0.139081.
+- Main Stage 3B finding: in this small debug benchmark, DeCo cache beats reduced-step no-cache at comparable speed; `all_candidates_i2_t02_10` is close to reduced-12 speed but has much lower rel-L2, 0.072756 vs 0.259579.
+- Figures generated under ignored `outputs/stage3b/figures/`: speed-quality scatter, rel-L2 bar, speedup bar, cache hit-rate bar, and frequency-delta bar.
+- Plot note: matplotlib used a temporary cache under `/tmp` because `/root/.config/matplotlib` was not writable; plot generation still completed.
+- new weights downloaded: none.
+- artifact status: `logs/`, `outputs/`, `ckpts/`, datasets, generated images, and large binaries remain ignored and should not be committed.
+## Stage 0 Smoke - 2026-06-01T07:48:43.149927+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
