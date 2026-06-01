@@ -1,8 +1,8 @@
 # PixelFlowCache
 
-PixelFlowCache is a research codebase for studying no-cache baselines, profiling, and cache acceleration for pixel-space flow diffusion models. The current implementation status is **Stage 2C JiT window ablation and full-probe diagnostics**.
+PixelFlowCache is a research codebase for studying no-cache baselines, profiling, and cache acceleration for pixel-space flow diffusion models. The current implementation status is **Stage 2D JiT fixed whole-backbone cache validation**.
 
-Stage 2 implements the first actual compute-skipping baseline: fixed-interval whole-block cache for JiT Transformer blocks. Stage 2B extends that baseline with timestep windows, layer-group sweeps, repeated timing, and velocity-error diagnostics. Stage 2C focuses on controlled JiT window ablations and local-error probes. The project still does not implement token cache, DeCo cache, adaptive online policy, solver-aware cache, frequency-aware cache, or calibration.
+Stage 2 implements the first actual compute-skipping baseline: fixed-interval whole-block cache for JiT Transformer blocks. Stage 2B extends that baseline with timestep windows, layer-group sweeps, repeated timing, and velocity-error diagnostics. Stage 2C focuses on controlled JiT window ablations and local-error probes. Stage 2D validates the best JiT fixed whole-backbone cache windows and seed stability. The project still does not implement token cache, DeCo cache, adaptive online policy, solver-aware cache, frequency-aware cache, or calibration.
 
 ## Quickstart on this server
 
@@ -108,6 +108,33 @@ bash scripts/run_jit_stage2c_validate.sh
 ```
 
 See [docs/STAGE2C_WINDOW_ABLATION_AND_PROBE.md](docs/STAGE2C_WINDOW_ABLATION_AND_PROBE.md) and [docs/STAGE2C_BOUNDARY_CACHE_OBSERVATION.md](docs/STAGE2C_BOUNDARY_CACHE_OBSERVATION.md) for details.
+
+## Stage 2D JiT Validation And Seed Stability
+
+Use one GPU by default:
+
+```bash
+export PFC_CUDA_DEVICES=0
+bash scripts/run_jit_stage2d_validate_best_windows.sh
+bash scripts/run_jit_stage2d_first_hit_delay.sh
+```
+
+Optional seed sweep:
+
+```bash
+bash scripts/run_jit_stage2d_seed_sweep.sh
+```
+
+Plot Stage 2D results:
+
+```bash
+python scripts/plot_stage2d_jit.py \
+  --validate-dir logs/stage2d/jit_validate_best/<run_id> \
+  --first-hit-dir logs/stage2d/jit_first_hit_delay/<run_id> \
+  --seed-sweep-dir logs/stage2d/jit_seed_sweep/<run_id>
+```
+
+See [docs/STAGE2D_VALIDATION_AND_SEED_STABILITY.md](docs/STAGE2D_VALIDATION_AND_SEED_STABILITY.md) for details.
 
 The default server paths are:
 

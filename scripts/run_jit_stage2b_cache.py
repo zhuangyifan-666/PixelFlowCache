@@ -61,6 +61,7 @@ class Stage2BConfig:
     active_t_max: float | None = 0.8
     active_step_min: int | None = None
     active_step_max: int | None = None
+    active_window_warmup_refreshes: int = 0
     timing_repeats: int = 3
     warmup_runs: int = 1
     diag_full_probe: bool = False
@@ -124,6 +125,7 @@ def _policy_for_config(config: Stage2BConfig, selected_modules: list[str]) -> Fi
         active_t_max=config.active_t_max,
         active_step_min=config.active_step_min,
         active_step_max=config.active_step_max,
+        active_window_warmup_refreshes=config.active_window_warmup_refreshes,
     )
 
 
@@ -496,6 +498,7 @@ def build_config_from_args(argv: list[str] | None = None) -> Stage2BConfig:
         active_t_max=_env_optional_float("PFC_STAGE2B_ACTIVE_T_MAX", 0.8),
         active_step_min=_env_optional_int("PFC_STAGE2B_ACTIVE_STEP_MIN", None),
         active_step_max=_env_optional_int("PFC_STAGE2B_ACTIVE_STEP_MAX", None),
+        active_window_warmup_refreshes=_env_int("PFC_STAGE2B_ACTIVE_WINDOW_WARMUP_REFRESHES", 0),
         timing_repeats=_env_int("PFC_STAGE2B_TIMING_REPEATS", 3),
         warmup_runs=_env_int("PFC_STAGE2B_WARMUP_RUNS", 1),
         diag_full_probe=_env_bool("PFC_STAGE2B_DIAG_FULL_PROBE", False),

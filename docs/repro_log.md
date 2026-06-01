@@ -327,3 +327,72 @@ This file is updated by Stage 0 inspection, smoke, and baseline scripts.
 
 - smoke test passed: True
 - checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+## Stage 0 Smoke - 2026-06-01T05:29:07.866263+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+
+## Stage 2D Implementation Start - 2026-06-01T05:36:28Z
+
+- current `git rev-parse HEAD`: 9f83614b9bbb0359374a578da030ebb2485a6e73
+- implementation status: worktree patch pending; not committed in this turn.
+- scope: JiT fixed whole-backbone best-window validation, seed stability, and first-hit delay ablation.
+- not implemented: token cache, DeCo cache, adaptive online policy, solver-aware cache, calibration, final PixelFlowCache method.
+- validation environment: `conda run -n jit`
+- initial CPU checks: `python scripts/run_stage0_smoke.py` passed; `pytest -q` passed with 51 tests before edits.
+- planned validation configs include all/i2 `[0.2,0.8)` and all/i2 `[0.2,1.0)`.
+- artifact status: no new weights downloaded; logs, outputs, checkpoints, datasets, generated images, and large binaries remain ignored.
+
+## Stage 2D Implementation Check - 2026-06-01T05:39:45Z
+
+- current `git rev-parse HEAD`: 9f83614b9bbb0359374a578da030ebb2485a6e73
+- implementation status: worktree patch pending; not committed in this turn.
+- new policy option: `active_window_warmup_refreshes`, default 0, per module and CFG branch.
+- validation environment: `conda run -n jit`
+- `python scripts/run_stage0_smoke.py`: passed.
+- `pytest -q`: passed with 58 tests.
+- Stage 2D validation status: attempted with one GPU via `PFC_CUDA_DEVICES=0`, but this session's `nvidia-smi` failed before model load; see ignored log `logs/stage2d/jit_stage2d_validate_best_windows_stdout.log`.
+- Stage 2D first-hit delay status: attempted with one GPU via `PFC_CUDA_DEVICES=0`, but this session's `nvidia-smi` failed before model load; see ignored log `logs/stage2d/jit_stage2d_first_hit_delay_stdout.log`.
+- Stage 2D seed sweep status: attempted, but this session's `nvidia-smi` failed before model load; see ignored log `logs/stage2d/jit_stage2d_seed_sweep_stdout.log`.
+- Plot status: empty-input check passed; full plots require completed Stage 2D run directories.
+- next GPU-visible commands: `export PFC_CUDA_DEVICES=0; bash scripts/run_jit_stage2d_validate_best_windows.sh; bash scripts/run_jit_stage2d_first_hit_delay.sh; bash scripts/run_jit_stage2d_seed_sweep.sh`.
+- artifact status: no new weights downloaded; logs, outputs, checkpoints, datasets, generated images, and large binaries remain ignored.
+
+## Stage 2D Implementation Check - 2026-06-01T05:43:28Z
+
+- current `git rev-parse HEAD`: 9f83614b9bbb0359374a578da030ebb2485a6e73
+- implementation status: worktree patch pending; not committed in this turn.
+- final CPU checks after warmup semantics adjustment: `python scripts/run_stage0_smoke.py` passed; `pytest -q` passed with 58 tests.
+- first-hit delay semantics: warmup refreshes are consumed on candidate reuse steps inside the active window, so warmup=1 delays the first cache hit for the default interval-2 `[0.1,0.8)` setting.
+- GPU status in this session: `nvidia-smi` still fails with driver communication error, so Stage 2D validation, first-hit delay, and seed sweep remain pending for a GPU-visible shell.
+- artifact status: no new weights downloaded; logs, outputs, checkpoints, datasets, generated images, and large binaries remain ignored.
+
+## Stage 2D JiT Validation And Seed Stability Results - 2026-06-01T06:16:12Z
+
+- current `git rev-parse HEAD`: 9f83614b9bbb0359374a578da030ebb2485a6e73
+- GPU policy used: one GPU via `PFC_CUDA_DEVICES=0` / `CUDA_VISIBLE_DEVICES=0`.
+- Stage 2D validation run dir: `logs/stage2d/jit_validate_best/20260601T054448Z_seed0_steps50`.
+- Stage 2D validation rows: no-cache reference plus all/i2 `[0.1,0.8)`, all/i2 `[0.1,1.0)`, all/i2 `[0.2,0.8)`, all/i2 `[0.2,1.0)`, and all/i3 `[0.2,0.8)`.
+- Best 50-step validation quality: all/i2 `[0.2,0.8)`, speedup 1.3913, hit rate 0.3000, rel-L2 0.019059, MSE 0.00007648, PSNR 47.1850.
+- Fastest 50-step validation row: all/i2 `[0.1,1.0)`, speedup 1.7097, hit rate 0.4400, rel-L2 0.043077.
+- Speed-quality point: all/i2 `[0.2,1.0)` reached speedup 1.6079, hit rate 0.4000, rel-L2 0.024648, MSE 0.00012792, PSNR 44.9512.
+- 50-step comparison: `[0.2,0.8)` beat `[0.1,0.8)` on rel-L2, 0.019059 vs 0.040435, at lower speedup, 1.3913 vs 1.4677.
+- First-hit delay run dir: `logs/stage2d/jit_first_hit_delay/20260601T055631Z_seed0_steps20`.
+- First-hit delay result for all/i2 `[0.1,0.8)`: warmup 0 rel-L2 0.080710 speedup 1.4904; warmup 1 rel-L2 0.032933 speedup 1.3975; warmup 2 rel-L2 0.022872 speedup 1.3063.
+- First-hit delay finding: delaying the first active-window reuse improves quality substantially, with expected speedup loss.
+- Seed sweep run dir: `logs/stage2d/jit_seed_sweep/20260601T055730Z_seed0_steps50`.
+- Seed sweep seeds: 0, 1, 2; 16 samples, 50 steps, 2 timing repeats.
+- Seed sweep all/i2 `[0.1,0.8)`: speedup mean/std 1.4699/0.0011; rel-L2 mean/std 0.045155/0.006983; MSE mean/std 0.00041215/0.00010498.
+- Seed sweep all/i2 `[0.1,1.0)`: speedup mean/std 1.7068/0.0047; rel-L2 mean/std 0.047799/0.006838; MSE mean/std 0.00046073/0.00010783.
+- Seed sweep all/i2 `[0.2,0.8)`: speedup mean/std 1.3919/0.0008; rel-L2 mean/std 0.022393/0.006337; MSE mean/std 0.00010614/0.00005609.
+- Seed sweep all/i2 `[0.2,1.0)`: speedup mean/std 1.6047/0.0009; rel-L2 mean/std 0.027789/0.005509; MSE mean/std 0.00015824/0.00005770.
+- Stage 2D figures generated under ignored `outputs/stage2d/figures/`.
+- artifact status: no new weights downloaded; logs, outputs, checkpoints, datasets, generated images, and large binaries remain ignored.
+## Stage 0 Smoke - 2026-06-01T05:38:00.196263+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+## Stage 0 Smoke - 2026-06-01T05:43:11.886500+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula

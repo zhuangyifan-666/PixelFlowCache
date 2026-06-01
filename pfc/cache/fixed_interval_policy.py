@@ -21,6 +21,7 @@ class FixedIntervalCachePolicy:
         active_t_max: float | None = None,
         active_step_min: int | None = None,
         active_step_max: int | None = None,
+        active_window_warmup_refreshes: int = 0,
     ) -> None:
         if interval <= 0:
             raise ValueError("interval must be positive")
@@ -28,6 +29,8 @@ class FixedIntervalCachePolicy:
             raise ValueError("warmup_steps must be non-negative")
         if cooldown_steps < 0:
             raise ValueError("cooldown_steps must be non-negative")
+        if active_window_warmup_refreshes < 0:
+            raise ValueError("active_window_warmup_refreshes must be non-negative")
         self.enabled = enabled
         self.interval = interval
         self.cache_modules = set(cache_modules) if cache_modules is not None else None
@@ -42,6 +45,9 @@ class FixedIntervalCachePolicy:
         self.active_t_max = active_t_max
         self.active_step_min = active_step_min
         self.active_step_max = active_step_max
+        self.active_window_warmup_refreshes = active_window_warmup_refreshes
+        self._active_window_refresh_counts: dict[tuple[str, str], int] = {}
+        self._active_window_last_steps: dict[tuple[str, str], int] = {}
 
     def should_cache_module(self, module_name: str) -> bool:
         return self.cache_modules is None or module_name in self.cache_modules
@@ -105,12 +111,15 @@ class FixedIntervalCachePolicy:
         solver_stage: str,
     ) -> bool:
         if not self._active_for_context(step_idx, module_name, cfg_branch, solver_stage, t=t):
+            self._clear_active_window_state(module_name, cfg_branch)
             return True
         if self.interval == 1:
             return True
         if self.refresh_first_step and step_idx == 0:
             return True
-        return step_idx % self.interval == 0
+        if step_idx % self.interval == 0:
+            return True
+        return self._consume_active_window_warmup_refresh(step_idx, module_name, cfg_branch)
 
     def should_reuse(
         self,
@@ -120,10 +129,31 @@ class FixedIntervalCachePolicy:
         cfg_branch: str,
         solver_stage: str,
     ) -> bool:
-        return (
-            self._active_for_context(step_idx, module_name, cfg_branch, solver_stage, t=t)
-            and not self.should_refresh(step_idx, t, module_name, cfg_branch, solver_stage)
-        )
+        if not self._active_for_context(step_idx, module_name, cfg_branch, solver_stage, t=t):
+            self._clear_active_window_state(module_name, cfg_branch)
+            return False
+        return not self.should_refresh(step_idx, t, module_name, cfg_branch, solver_stage)
+
+    def _clear_active_window_state(self, module_name: str, cfg_branch: str) -> None:
+        key = (module_name, cfg_branch)
+        self._active_window_refresh_counts.pop(key, None)
+        self._active_window_last_steps.pop(key, None)
+
+    def _consume_active_window_warmup_refresh(self, step_idx: int, module_name: str, cfg_branch: str) -> bool:
+        if self.active_window_warmup_refreshes <= 0:
+            return False
+        key = (module_name, cfg_branch)
+        last_step = self._active_window_last_steps.get(key)
+        if last_step is not None and step_idx < last_step:
+            self._active_window_refresh_counts[key] = 0
+        count = self._active_window_refresh_counts.get(key, 0)
+        if count < self.active_window_warmup_refreshes:
+            if last_step != step_idx:
+                self._active_window_refresh_counts[key] = count + 1
+            self._active_window_last_steps[key] = step_idx
+            return True
+        self._active_window_last_steps[key] = step_idx
+        return False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -141,6 +171,7 @@ class FixedIntervalCachePolicy:
             "active_t_max": self.active_t_max,
             "active_step_min": self.active_step_min,
             "active_step_max": self.active_step_max,
+            "active_window_warmup_refreshes": self.active_window_warmup_refreshes,
         }
 
     @classmethod
