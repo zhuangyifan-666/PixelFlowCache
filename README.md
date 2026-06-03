@@ -1,8 +1,8 @@
 # PixelFlowCache
 
-PixelFlowCache is a research codebase for studying no-cache baselines, profiling, and cache acceleration for pixel-space flow diffusion models. The current implementation status is **Stage 3B DeCo direct-velocity cache feasibility**.
+PixelFlowCache is a research codebase for studying no-cache baselines, profiling, and cache acceleration for pixel-space flow diffusion models. The current implementation status is **Stage 3B2 DeCo cache decomposition and validation**.
 
-Stage 2 implements the first actual compute-skipping baseline: fixed-interval whole-block cache for JiT Transformer blocks. Stage 2B extends that baseline with timestep windows, layer-group sweeps, repeated timing, and velocity-error diagnostics. Stage 2C focuses on controlled JiT window ablations and local-error probes. Stage 2D validates the best JiT fixed whole-backbone cache windows and seed stability. Stage 3A benchmarks JiT BackboneCache presets against reduced-step no-cache baselines. Stage 3B tests whether the same coarse boundary-cache idea is feasible for direct-v-pred DeCo. The project still does not implement token cache, adaptive online policy, solver-aware cache, frequency-aware cache, calibration, or a final PixelFlowCache method.
+Stage 2 implements the first actual compute-skipping baseline: fixed-interval whole-block cache for JiT Transformer blocks. Stage 2B extends that baseline with timestep windows, layer-group sweeps, repeated timing, and velocity-error diagnostics. Stage 2C focuses on controlled JiT window ablations and local-error probes. Stage 2D validates the best JiT fixed whole-backbone cache windows and seed stability. Stage 3A benchmarks JiT BackboneCache presets against reduced-step no-cache baselines. Stage 3B tests whether the same coarse boundary-cache idea is feasible for direct-v-pred DeCo. Stage 3B2 decomposes DeCo final, decoder, and backbone cache contributions. The project still does not implement token cache, adaptive online policy, solver-aware cache, frequency-aware cache, calibration, or a final PixelFlowCache method.
 
 ## Quickstart on this server
 
@@ -181,6 +181,32 @@ python scripts/plot_stage3b_deco.py --benchmark-dir "$BENCHMARK_DIR"
 ```
 
 See [docs/STAGE3B_DECO_DIRECT_VELOCITY_CACHE.md](docs/STAGE3B_DECO_DIRECT_VELOCITY_CACHE.md) for details.
+
+## Stage 3B2 DeCo Cache Decomposition
+
+Use one GPU by default:
+
+```bash
+export PFC_CUDA_DEVICES=0
+bash scripts/run_deco_stage3b2_decomposition.sh
+```
+
+Plot and generate report tables:
+
+```bash
+DECOMP_DIR="$(ls -td logs/stage3b2/deco_decomposition/* | head -n 1)"
+python scripts/plot_stage3b2_deco.py --decomposition-dir "$DECOMP_DIR"
+python scripts/make_stage3b2_report_tables.py --decomposition-dir "$DECOMP_DIR"
+```
+
+Optional seed sweep and validation:
+
+```bash
+bash scripts/run_deco_stage3b2_seed_sweep.sh
+bash scripts/run_deco_stage3b2_validate.sh
+```
+
+See [docs/STAGE3B2_DECO_CACHE_DECOMPOSITION.md](docs/STAGE3B2_DECO_CACHE_DECOMPOSITION.md) for details.
 
 The default server paths are:
 

@@ -505,3 +505,57 @@ This file is updated by Stage 0 inspection, smoke, and baseline scripts.
 
 - smoke test passed: True
 - checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+## Stage 0 Smoke - 2026-06-03T02:25:24.944715+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+
+## Stage 3B2 DeCo Cache Decomposition Implementation Check - 2026-06-03T02:33:22Z
+
+- current `git rev-parse HEAD`: 01e173a1f46376cc74d40489919948b9806a872e
+- implementation status: worktree patch pending; not committed in this turn.
+- scope: DeCo-only cache decomposition and validation scaffolding.
+- not implemented: token cache, adaptive online policy, solver-aware cache, calibration, or final PixelFlowCache policy.
+- explicit DeCo cache specs added: `final_only`, `decoder_only_no_final`, `decoder_plus_final`, `backbone_only`, `backbone_plus_final`, `backbone_plus_decoder_no_final`, `late_backbone_only:<n>`, and `late_backbone_plus_final:<n>`.
+- per-config nested artifact support added under `logs/stage3b2/.../runs/<method_name>_seed<seed>/`.
+- scripts added: decomposition, validation, seed sweep, plotting, and report-table generation.
+- `conda run -n deco python scripts/run_stage0_smoke.py`: passed.
+- `conda run -n deco python -m pytest -q`: failed because the `deco` environment does not have `pytest` installed.
+- post-check `conda run -n jit python scripts/run_stage0_smoke.py`: passed.
+- post-check `conda run -n jit pytest -q`: passed with 80 tests.
+- static checks: `python -m py_compile` on Stage 3B2 Python files passed; `bash -n` on Stage 3B2 wrappers passed.
+- DeCo decomposition status: attempted through `bash scripts/run_deco_stage3b2_decomposition.sh`, but this session's `nvidia-smi` failed before model load; see ignored log `logs/stage3b2/deco_stage3b2_decomposition_stdout.log`.
+- DeCo seed sweep status: attempted through `bash scripts/run_deco_stage3b2_seed_sweep.sh`, but this session's `nvidia-smi` failed before model load; see ignored log `logs/stage3b2/deco_stage3b2_seed_sweep_stdout.log`.
+- DeCo validation status: attempted through `bash scripts/run_deco_stage3b2_validate.sh`, but this session's `nvidia-smi` failed before model load; see ignored log `logs/stage3b2/deco_stage3b2_validate_stdout.log`.
+- GPU blocker: `NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver`.
+- Next GPU-visible commands: `export PFC_CUDA_DEVICES=0; bash scripts/run_deco_stage3b2_decomposition.sh; DECOMP_DIR="$(ls -td logs/stage3b2/deco_decomposition/* | head -n 1)"; python scripts/plot_stage3b2_deco.py --decomposition-dir "$DECOMP_DIR"; python scripts/make_stage3b2_report_tables.py --decomposition-dir "$DECOMP_DIR"`.
+- Optional GPU-visible commands: `bash scripts/run_deco_stage3b2_seed_sweep.sh; bash scripts/run_deco_stage3b2_validate.sh`.
+- new weights downloaded: none.
+- artifact status: `logs/`, `outputs/`, `ckpts/`, datasets, generated images, and large binaries remain ignored and should not be committed.
+
+## Stage 3B2 DeCo Cache Decomposition Results - 2026-06-03T02:51:56Z
+
+- current `git rev-parse HEAD`: 01e173a1f46376cc74d40489919948b9806a872e
+- implementation status: worktree patch pending; not committed in this turn.
+- GPU policy used by user-run wrapper: one GPU via `PFC_CUDA_DEVICES=0` / `CUDA_VISIBLE_DEVICES=0`.
+- DeCo decomposition run dir: `logs/stage3b2/deco_decomposition/20260603T023555Z_seed0_steps20_decomposition`.
+- Decomposition setting: seed 0, 8 samples, 20-step no-cache reference, cache interval 2, active t `[0.2,1.0)`, reduced-step baselines 12/15/18.
+- Generated report files: `decomposition_results.csv`, `decomposition_results.json`, `decomposition_aggregate.csv`, `summary.md`, `paper_table_deco_decomposition.md`, and `paper_table_deco_decomposition.csv`.
+- Generated figures under ignored `outputs/stage3b2/figures/`: decomposition speed-quality, rel-L2 by cache unit, speedup by cache unit, final cache effect, cache vs reduced steps, and validation placeholder.
+- Best speed among same-quality cache rows: `backbone_plus_decoder_no_final`, speedup 1.1320, rel-L2 0.072756, hit rate 0.4000.
+- `all_candidates`: speedup 1.1313, rel-L2 0.072756, PSNR 36.9538, hit rate 0.4000.
+- `backbone_plus_final`: speedup 1.0987, rel-L2 0.072756, PSNR 36.9538, hit rate 0.4000.
+- `final_only`: speedup 0.8499, rel-L2 0.072756, PSNR 36.9538, hit rate 0.4000.
+- `decoder_only_no_final` and `decoder_plus_final` also matched rel-L2 0.072756 in this debug run, but were slower than no-cache.
+- Backbone-only rows were worse: `backbone_only` speedup 1.0028 rel-L2 0.154051; `late_backbone_only_6` speedup 0.8430 rel-L2 0.154051.
+- Reduced-step baselines: 12 steps speedup 1.6698 rel-L2 0.259579; 15 steps speedup 1.3489 rel-L2 0.210121; 18 steps speedup 1.1202 rel-L2 0.139081.
+- Main Stage 3B2 finding: in this 20-step debug decomposition, any cached decoder/final output-side boundary matched the best quality, while backbone-only cache was substantially worse; cache still beat the nearest reduced-step no-cache baseline at comparable speed.
+- Validation status: not run yet in this turn.
+- Seed sweep status: not run yet in this turn.
+- Plot note: matplotlib used a temporary cache under `/tmp` because `/root/.config/matplotlib` was not writable; plot generation completed.
+- new weights downloaded: none.
+- artifact status: `logs/`, `outputs/`, `ckpts/`, datasets, generated images, and large binaries remain ignored and should not be committed.
+## Stage 0 Smoke - 2026-06-03T02:32:46.585300+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula

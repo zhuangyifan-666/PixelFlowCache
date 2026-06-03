@@ -55,16 +55,29 @@ def parse_deco_cache_spec(spec: str, module_candidates: list[str]) -> list[str]:
     lower = normalized.lower()
     if not normalized:
         raise ValueError("DeCo cache spec must not be empty")
+    backbone = [name for name in module_candidates if deco_cache_unit_category(name) == "backbone_block"]
+    decoder = [name for name in module_candidates if deco_cache_unit_category(name) == "decoder_block"]
+    final = [name for name in module_candidates if deco_cache_unit_category(name) == "final_head"]
     if lower == "none":
         return []
     if lower == "all_candidates":
-        return [name for name in module_candidates if _name_matches_safe_unit(name)]
-    if lower == "backbone_blocks":
-        return [name for name in module_candidates if deco_cache_unit_category(name) == "backbone_block"]
-    if lower == "decoder_blocks":
-        return [name for name in module_candidates if deco_cache_unit_category(name) == "decoder_block"]
-    if lower == "final":
-        return [name for name in module_candidates if deco_cache_unit_category(name) == "final_head"]
+        return backbone + decoder + final
+    if lower in {"backbone_blocks", "backbone_only"}:
+        return backbone
+    if lower in {"decoder_blocks", "decoder_only_no_final"}:
+        return decoder
+    if lower in {"final", "final_only"}:
+        return final
+    if lower == "decoder_plus_final":
+        return decoder + final
+    if lower == "backbone_plus_final":
+        return backbone + final
+    if lower == "backbone_plus_decoder_no_final":
+        return backbone + decoder
+    if lower.startswith("late_backbone_plus_final:"):
+        return _late_backbone(lower, normalized, backbone) + final
+    if lower.startswith("late_backbone_only:"):
+        return _late_backbone(lower, normalized, backbone)
     if lower.startswith("topk:"):
         return _parse_topk_spec(normalized, candidate_set)
     explicit = [item.strip() for item in normalized.split(",") if item.strip()]
@@ -121,6 +134,16 @@ def _parse_topk_spec(spec: str, candidate_set: set[str]) -> list[str]:
             rows.append((float(score_text), module_name))
     rows.sort(key=lambda item: item[0])
     return [name for _score, name in rows[:k]]
+
+
+def _late_backbone(lower: str, original: str, backbone: list[str]) -> list[str]:
+    try:
+        count = int(lower.rsplit(":", 1)[1])
+    except ValueError as exc:
+        raise ValueError(f"Expected integer n in DeCo cache spec: {original}") from exc
+    if count <= 0:
+        raise ValueError(f"Expected positive integer n in DeCo cache spec: {original}")
+    return backbone[-count:]
 
 
 def _resolve_parent(root: nn.Module, module_name: str) -> tuple[nn.Module, str]:
