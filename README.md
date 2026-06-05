@@ -1,8 +1,8 @@
 # PixelFlowCache
 
-PixelFlowCache is a research codebase for studying no-cache baselines, profiling, and cache acceleration for pixel-space flow diffusion models. The current implementation status is **Stage 3C BoundaryFlowCache synthesis**.
+PixelFlowCache is a research codebase for studying no-cache baselines, profiling, and cache acceleration for pixel-space flow diffusion models. The current implementation status is **Stage 4A full inference and FID-ready evaluation pipeline**.
 
-Stage 2 implements the first actual compute-skipping baseline: fixed-interval whole-block cache for JiT Transformer blocks. Stage 2B extends that baseline with timestep windows, layer-group sweeps, repeated timing, and velocity-error diagnostics. Stage 2C focuses on controlled JiT window ablations and local-error probes. Stage 2D validates the best JiT fixed whole-backbone cache windows and seed stability. Stage 3A benchmarks JiT BackboneCache presets against reduced-step no-cache baselines. Stage 3B tests whether the same coarse boundary-cache idea is feasible for direct-v-pred DeCo. Stage 3B2 decomposes DeCo final, decoder, and backbone cache contributions. Stage 3C synthesizes JiT and DeCo into a boundary-aware PixelFlowCache analysis under the working method name BoundaryFlowCache. The project still does not implement token cache, adaptive online policy, solver-aware cache, frequency-aware cache, calibration, or a final full PixelFlowCache method.
+Stage 2 implements the first actual compute-skipping baseline: fixed-interval whole-block cache for JiT Transformer blocks. Stage 2B extends that baseline with timestep windows, layer-group sweeps, repeated timing, and velocity-error diagnostics. Stage 2C focuses on controlled JiT window ablations and local-error probes. Stage 2D validates the best JiT fixed whole-backbone cache windows and seed stability. Stage 3A benchmarks JiT BackboneCache presets against reduced-step no-cache baselines. Stage 3B tests whether the same coarse boundary-cache idea is feasible for direct-v-pred DeCo. Stage 3B2 decomposes DeCo final, decoder, and backbone cache contributions. Stage 3C synthesizes JiT and DeCo into a boundary-aware PixelFlowCache analysis under the working method name BoundaryFlowCache. Stage 4A adds full-generation, FID-ready evaluation, command-plan, result collection, and plotting scripts. Long inference and FID runs are launched manually by the user, not automatically by Codex. The project still does not implement token cache, adaptive online policy, solver-aware cache, frequency-aware cache, calibration, or a final full PixelFlowCache method.
 
 ## Quickstart on this server
 
@@ -228,6 +228,42 @@ conda run -n deco python scripts/run_deco_stage3c_50step_seed_validation.py
 ```
 
 See [docs/STAGE3C_BOUNDARY_FLOW_CACHE_SYNTHESIS.md](docs/STAGE3C_BOUNDARY_FLOW_CACHE_SYNTHESIS.md) for details.
+
+## Stage 4A Full Inference And FID-Ready Evaluation
+
+Print a 100-image smoke command plan without running generation:
+
+```bash
+bash scripts/print_stage4a_smoke_commands.sh
+```
+
+Write a launch script for manual review:
+
+```bash
+python scripts/run_stage4a_full_eval_plan.py \
+  --models jit,deco \
+  --num-images 100 \
+  --out-script scripts/launch_stage4a_smoke_100.sh
+```
+
+Dry-run individual scripts:
+
+```bash
+python scripts/run_jit_stage4a_generate.py --method no_cache_50 --dry-run
+python scripts/run_deco_stage4a_generate.py --method no_cache_50 --dry-run
+python scripts/evaluate_stage4a_fid.py --help
+python scripts/prepare_stage4a_imagenet_reference.py --dry-run
+```
+
+After the user manually runs generation and FID commands:
+
+```bash
+python scripts/collect_stage4a_fid_results.py
+SUMMARY_DIR="$(ls -td logs/stage4a/summary/* | head -n 1)"
+python scripts/plot_stage4a_full_eval.py --summary-dir "$SUMMARY_DIR"
+```
+
+See [docs/STAGE4A_FULL_INFERENCE_AND_FID.md](docs/STAGE4A_FULL_INFERENCE_AND_FID.md) for details. Do not use the Stage 0 JiT `torch_fidelity` stub for real FID.
 
 The default server paths are:
 

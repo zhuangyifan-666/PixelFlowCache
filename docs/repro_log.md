@@ -592,3 +592,76 @@ This file is updated by Stage 0 inspection, smoke, and baseline scripts.
 - current best DeCo method: `all_candidates` for speedup at rel-L2 0.0460 in the 50-step seed0 validation; `backbone_plus_final` matches the same rel-L2 with lower speedup.
 - new weights downloaded: none.
 - artifact status: `logs/`, `outputs/`, `ckpts/`, datasets, generated images, and large binaries remain ignored and should not be committed.
+
+## Stage 0 Smoke - 2026-06-05T03:39:49.546302+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+
+## Stage 0 Smoke - 2026-06-05T03:52:58.429229+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+
+## Stage 4A Full Inference And FID-Ready Pipeline - 2026-06-05T03:53:13Z
+
+- current `git rev-parse HEAD`: 697e1f1402495ebf3de4889b0eb106d21612c0e3
+- implementation status: worktree patch pending; no Stage 4A commit has been created in this turn.
+- Stage 4A role: add full-generation, FID-ready evaluation, ImageNet reference preparation, command-plan generation, result collection, and plotting scripts for JiT and DeCo.
+- CPU smoke: `conda run -n jit python scripts/run_stage0_smoke.py` passed.
+- pytest: `conda run -n jit pytest -q` passed with 91 tests and 2 CUDA-unavailable warnings.
+- syntax check: `conda run -n jit python -m py_compile ...` passed for new Stage 4A Python modules and scripts.
+- help checks completed:
+  - `conda run -n jit python scripts/run_jit_stage4a_generate.py --help`
+  - `conda run -n jit python scripts/run_deco_stage4a_generate.py --help`
+  - `conda run -n jit python scripts/evaluate_stage4a_fid.py --help`
+- command-plan generation completed:
+  - `conda run -n jit python scripts/run_stage4a_full_eval_plan.py --models jit,deco --num-images 100 --out-script scripts/launch_stage4a_smoke_100.sh`
+  - `bash scripts/print_stage4a_smoke_commands.sh`
+- generated manual launch script: `scripts/launch_stage4a_smoke_100.sh`
+- real inference launched by Codex: no.
+- FID/IS/KID computed by Codex: no.
+- background jobs submitted by Codex: no.
+- new weights downloaded: none.
+- artifact status: `logs/`, `outputs/`, `ckpts/`, datasets, generated images, FID outputs, and large binaries remain ignored and should not be committed.
+
+## Stage 4A JiT Launch Fix - 2026-06-05T03:59:13Z
+
+- current `git rev-parse HEAD`: 697e1f1402495ebf3de4889b0eb106d21612c0e3
+- user-run smoke blocker: `scripts/run_jit_stage4a_generate.py` imported `_sample_jit` from `scripts.run_jit_stage2b_cache`, but the function lives in `scripts.run_jit_stage2_cache`.
+- fix: Stage 4A JiT runtime helper now imports `_sample_jit` from `scripts.run_jit_stage2_cache`.
+- additional fix: JiT `--dry-run` now recursively serializes nested `Path` values in the resolved config.
+- regression test added: `tests/test_stage4a_plan.py` checks the runtime helper source module and dry-run JSON path serialization.
+- validation:
+  - `conda run -n jit python -m py_compile scripts/run_jit_stage4a_generate.py` passed.
+  - `conda run -n jit pytest -q tests/test_stage4a_plan.py` passed with 3 tests.
+  - `conda run -n jit python scripts/run_jit_stage4a_generate.py --method no_cache_50 --num-images 100 --batch-size 8 --seed 0 --run-id stage4a_n100_seed0 --dry-run` passed.
+  - `conda run -n jit pytest -q` passed with 93 tests and 2 CUDA-unavailable warnings.
+- real inference launched by Codex after this fix: no.
+- FID/IS/KID computed by Codex: no.
+- new weights downloaded: none.
+
+## Stage 4A 100-Image Smoke Generation - 2026-06-05
+
+- user-run command: `export PFC_CUDA_DEVICES=0; bash scripts/launch_stage4a_smoke_100.sh`
+- generation status: completed for all 10 configured methods.
+- generated image counts: 100 PNGs and 100 manifest rows for each JiT and DeCo method.
+- JiT methods completed:
+  - `no_cache_50`
+  - `bfc_quality_t02_08`
+  - `bfc_speed_t02_10`
+  - `reduced_steps_35`
+  - `reduced_steps_30`
+- DeCo methods completed:
+  - `no_cache_50`
+  - `bfc_all_candidates_t02_10`
+  - `bfc_backbone_plus_final_t02_10`
+  - `reduced_steps_35`
+  - `reduced_steps_30`
+- generation output root: `outputs/stage4a/full_generation`
+- run id: `stage4a_n100_seed0`
+- generation-only summary: `logs/stage4a/summary/stage4a_n100_seed0_generation_only`
+- FID status: not computed. The launch script stopped at the first FID command because no supported backend was installed in the evaluation environment.
+- FID blocker: `No supported FID backend found. Install one of: pip install torch-fidelity, pip install clean-fid, or pip install torchmetrics[image].`
+- third-party cleanup: generated `__pycache__` files in JiT/DeCo were removed or restored after inspection.
+- new weights downloaded: none.
