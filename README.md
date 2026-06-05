@@ -1,8 +1,8 @@
 # PixelFlowCache
 
-PixelFlowCache is a research codebase for studying no-cache baselines, profiling, and cache acceleration for pixel-space flow diffusion models. The current implementation status is **Stage 3B2 DeCo cache decomposition and validation**.
+PixelFlowCache is a research codebase for studying no-cache baselines, profiling, and cache acceleration for pixel-space flow diffusion models. The current implementation status is **Stage 3C BoundaryFlowCache synthesis**.
 
-Stage 2 implements the first actual compute-skipping baseline: fixed-interval whole-block cache for JiT Transformer blocks. Stage 2B extends that baseline with timestep windows, layer-group sweeps, repeated timing, and velocity-error diagnostics. Stage 2C focuses on controlled JiT window ablations and local-error probes. Stage 2D validates the best JiT fixed whole-backbone cache windows and seed stability. Stage 3A benchmarks JiT BackboneCache presets against reduced-step no-cache baselines. Stage 3B tests whether the same coarse boundary-cache idea is feasible for direct-v-pred DeCo. Stage 3B2 decomposes DeCo final, decoder, and backbone cache contributions. The project still does not implement token cache, adaptive online policy, solver-aware cache, frequency-aware cache, calibration, or a final PixelFlowCache method.
+Stage 2 implements the first actual compute-skipping baseline: fixed-interval whole-block cache for JiT Transformer blocks. Stage 2B extends that baseline with timestep windows, layer-group sweeps, repeated timing, and velocity-error diagnostics. Stage 2C focuses on controlled JiT window ablations and local-error probes. Stage 2D validates the best JiT fixed whole-backbone cache windows and seed stability. Stage 3A benchmarks JiT BackboneCache presets against reduced-step no-cache baselines. Stage 3B tests whether the same coarse boundary-cache idea is feasible for direct-v-pred DeCo. Stage 3B2 decomposes DeCo final, decoder, and backbone cache contributions. Stage 3C synthesizes JiT and DeCo into a boundary-aware PixelFlowCache analysis under the working method name BoundaryFlowCache. The project still does not implement token cache, adaptive online policy, solver-aware cache, frequency-aware cache, calibration, or a final full PixelFlowCache method.
 
 ## Quickstart on this server
 
@@ -207,6 +207,27 @@ bash scripts/run_deco_stage3b2_validate.sh
 ```
 
 See [docs/STAGE3B2_DECO_CACHE_DECOMPOSITION.md](docs/STAGE3B2_DECO_CACHE_DECOMPOSITION.md) for details.
+
+## Stage 3C BoundaryFlowCache Synthesis
+
+Generate unified JiT and DeCo result tables from existing Stage 3A/3B2 logs:
+
+```bash
+python scripts/collect_stage3c_unified_results.py
+UNIFIED_DIR="$(ls -td logs/stage3c/unified/* | head -n 1)"
+python scripts/make_stage3c_paper_tables.py --unified-dir "$UNIFIED_DIR"
+python scripts/plot_stage3c_unified.py --unified-dir "$UNIFIED_DIR"
+```
+
+Optional DeCo 50-step multi-seed validation:
+
+```bash
+export PFC_CUDA_DEVICES=0
+export CUDA_VISIBLE_DEVICES=0
+conda run -n deco python scripts/run_deco_stage3c_50step_seed_validation.py
+```
+
+See [docs/STAGE3C_BOUNDARY_FLOW_CACHE_SYNTHESIS.md](docs/STAGE3C_BOUNDARY_FLOW_CACHE_SYNTHESIS.md) for details.
 
 The default server paths are:
 

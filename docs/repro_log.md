@@ -559,3 +559,36 @@ This file is updated by Stage 0 inspection, smoke, and baseline scripts.
 
 - smoke test passed: True
 - checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+## Stage 0 Smoke - 2026-06-05T01:38:32.138442+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+
+## Stage 0 Smoke - 2026-06-05T01:48:37.844427+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+
+## Stage 3C BoundaryFlowCache Synthesis - 2026-06-05T01:49:33Z
+
+- current `git rev-parse HEAD`: 5a16e1463ec275d707b473c5222e872b41c54e5b
+- implementation status: worktree patch pending; no cleanup or Stage 3C commit has been created in this turn.
+- Stage 3C role: unified JiT Stage 3A and DeCo Stage 3B2 results into method-level BoundaryFlowCache analysis.
+- unified result dir: `logs/stage3c/unified/20260605T014850Z`
+- unified inputs:
+  - JiT Stage 3A: `logs/stage3a/jit_backbone_benchmark/20260601T065811Z_seed0_ref50`
+  - DeCo 50-step validation: `logs/stage3b2/deco_validate/20260603T024359Z_seed0_steps50_validate`
+  - DeCo seed sweep: `logs/stage3b2/deco_seed_sweep/20260603T024020Z_seed0_steps20_seed-sweep`
+  - DeCo decomposition: `logs/stage3b2/deco_decomposition/20260603T023555Z_seed0_steps20_decomposition`
+- CPU smoke: `conda run -n jit python scripts/run_stage0_smoke.py` passed.
+- pytest: `conda run -n jit pytest -q` passed with 83 tests and 2 CUDA-unavailable warnings.
+- Stage 3C collector: `conda run -n jit python scripts/collect_stage3c_unified_results.py` completed.
+- Stage 3C table generation: `conda run -n jit python scripts/make_stage3c_paper_tables.py --unified-dir logs/stage3c/unified/20260605T014850Z` completed.
+- Stage 3C plot generation: `conda run -n jit python scripts/plot_stage3c_unified.py --unified-dir logs/stage3c/unified/20260605T014850Z` completed.
+- generated tables: `paper_table_main_cache_vs_reduced`, `paper_table_boundary_ablation`, and `paper_table_seed_stability` under the unified dir.
+- generated figures under ignored `outputs/stage3c/figures/`: speed-quality, rel-L2 cache-vs-reduced, speedup cache-vs-reduced, DeCo boundary ablation, and JiT-vs-DeCo best methods.
+- optional DeCo Stage 3C 50-step multi-seed validation: not run in this turn; existing Stage 3B2 50-step seed0 validation and 20-step seed sweep were used.
+- current best JiT method: `speed_t02_10` for speed-quality, with `quality_t02_08` as the quality preset.
+- current best DeCo method: `all_candidates` for speedup at rel-L2 0.0460 in the 50-step seed0 validation; `backbone_plus_final` matches the same rel-L2 with lower speedup.
+- new weights downloaded: none.
+- artifact status: `logs/`, `outputs/`, `ckpts/`, datasets, generated images, and large binaries remain ignored and should not be committed.
