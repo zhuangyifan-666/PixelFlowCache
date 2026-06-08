@@ -12,8 +12,10 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 FIELDNAMES = [
     "model",
+    "run_id",
     "method",
     "num_images",
+    "reference_key",
     "steps",
     "latency_sec",
     "images_per_sec",
@@ -46,8 +48,36 @@ def _float(payload: dict[str, Any], *keys: str) -> float | None:
     return None
 
 
-def _method_dirs(root: Path) -> list[Path]:
-    return sorted(path for path in root.glob("*/*/*") if path.is_dir() and (path / "generation_meta.json").exists())
+def _int_or_none(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_model_filter(value: str | None) -> set[str] | None:
+    if not value:
+        return None
+    models = {item.strip().lower() for item in value.split(",") if item.strip()}
+    return models or None
+
+
+def _method_dirs(root: Path, run_id: str | None = None, model: str | None = None) -> list[Path]:
+    model_filter = _parse_model_filter(model)
+    paths = []
+    for path in sorted(root.glob("*/*/*")):
+        if not path.is_dir() or not (path / "generation_meta.json").exists():
+            continue
+        path_model = path.parents[1].name
+        path_run_id = path.parent.name
+        if run_id and path_run_id != run_id:
+            continue
+        if model_filter and path_model.lower() not in model_filter:
+            continue
+        paths.append(path)
+    return paths
 
 
 def _fid_results(fid_root: Path, result_jsons: list[Path]) -> dict[str, dict[str, Any]]:
@@ -64,22 +94,41 @@ def _fid_results(fid_root: Path, result_jsons: list[Path]) -> dict[str, dict[str
     return mapping
 
 
-def collect_results(root: Path, fid_root: Path, result_jsons: list[Path]) -> list[dict[str, Any]]:
+def _reference_key(model: Any, run_id: Any, num_images: Any) -> str:
+    return f"{model}:{run_id}:n{num_images}"
+
+
+def collect_results(
+    root: Path,
+    fid_root: Path,
+    result_jsons: list[Path],
+    *,
+    run_id: str | None = None,
+    num_images: int | None = None,
+    model: str | None = None,
+) -> list[dict[str, Any]]:
     fid_by_fake = _fid_results(fid_root, result_jsons)
     rows: list[dict[str, Any]] = []
-    for method_dir in _method_dirs(root):
+    for method_dir in _method_dirs(root, run_id=run_id, model=model):
         meta = _load_json(method_dir / "generation_meta.json")
         latency = _load_json(method_dir / "latency.json")
         cache = _load_json(method_dir / "cache_stats.json")
         method = (meta.get("method") or {}).get("method_name") or method_dir.name
         model = meta.get("model") or method_dir.parents[1].name
+        method_run_id = meta.get("run_id") or method_dir.parent.name
+        row_num_images = _int_or_none(meta.get("num_images") or latency.get("generated_images"))
+        if num_images is not None and row_num_images != num_images:
+            continue
         fake_dir = str((method_dir / "images").resolve())
         fid = fid_by_fake.get(fake_dir, {})
+        reference_key = _reference_key(model, method_run_id, row_num_images)
         rows.append(
             {
                 "model": model,
+                "run_id": method_run_id,
                 "method": method,
-                "num_images": meta.get("num_images") or latency.get("generated_images"),
+                "num_images": row_num_images,
+                "reference_key": reference_key,
                 "steps": (meta.get("method") or {}).get("eval_steps"),
                 "latency_sec": _float(latency, "latency_sec"),
                 "images_per_sec": _float(latency, "images_per_sec"),
@@ -101,9 +150,9 @@ def _add_speedups(rows: list[dict[str, Any]]) -> None:
     refs: dict[str, float] = {}
     for row in rows:
         if row["method"] == "no_cache_50" and row["latency_sec"]:
-            refs[str(row["model"])] = float(row["latency_sec"])
+            refs[str(row["reference_key"])] = float(row["latency_sec"])
     for row in rows:
-        reference = refs.get(str(row["model"]))
+        reference = refs.get(str(row["reference_key"]))
         latency = row.get("latency_sec")
         row["speedup_vs_no_cache"] = reference / float(latency) if reference and latency else None
 
@@ -120,12 +169,12 @@ def _write_summary(path: Path, rows: list[dict[str, Any]]) -> None:
     lines = [
         "# Stage 4A FID Summary",
         "",
-        "| model | method | images | steps | speedup | FID | IS | cache hit |",
-        "|---|---|---:|---:|---:|---:|---:|---:|",
+        "| model | run_id | method | images | steps | speedup | FID | IS | cache hit |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
         lines.append(
-            "| {model} | {method} | {num_images} | {steps} | {speedup_vs_no_cache} | {FID} | {IS} | {cache_hit_rate} |".format(
+            "| {model} | {run_id} | {method} | {num_images} | {steps} | {speedup_vs_no_cache} | {FID} | {IS} | {cache_hit_rate} |".format(
                 **row
             )
         )
@@ -138,10 +187,20 @@ def main() -> int:
     parser.add_argument("--fid-root", type=Path, default=ROOT / "logs/stage4a/fid")
     parser.add_argument("--result-json", type=Path, nargs="*", default=[])
     parser.add_argument("--out-dir", type=Path)
+    parser.add_argument("--run-id")
+    parser.add_argument("--num-images", type=int)
+    parser.add_argument("--model")
     args = parser.parse_args()
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_dir = (args.out_dir or ROOT / "logs/stage4a/summary" / run_id).resolve()
-    rows = collect_results(args.root.resolve(), args.fid_root.resolve(), [path.resolve() for path in args.result_json])
+    rows = collect_results(
+        args.root.resolve(),
+        args.fid_root.resolve(),
+        [path.resolve() for path in args.result_json],
+        run_id=args.run_id,
+        num_images=args.num_images,
+        model=args.model,
+    )
     _write_csv(out_dir / "stage4a_results.csv", rows)
     (out_dir / "stage4a_results.json").write_text(json.dumps(rows, indent=2, sort_keys=True), encoding="utf-8")
     _write_summary(out_dir / "summary.md", rows)
@@ -151,4 +210,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -98,9 +98,10 @@ def build_plan(args: argparse.Namespace) -> list[str]:
             "# Summarize after FID JSON files are written.",
             "conda run -n jit python scripts/collect_stage4a_fid_results.py "
             f"--root {_q(args.output_root)} --fid-root {_q(ROOT / 'logs/stage4a/fid')} "
+            f"--run-id {_q(run_id)} --num-images {args.num_images} "
             f"--out-dir {_q(ROOT / 'logs/stage4a/summary' / run_id)}",
             "conda run -n jit python scripts/plot_stage4a_full_eval.py "
-            f"--summary-dir {_q(ROOT / 'logs/stage4a/summary' / run_id)}",
+            f"--summary-dir {_q(ROOT / 'logs/stage4a/summary' / run_id)} --num-images {args.num_images}",
         ]
     )
     return commands
@@ -138,4 +139,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

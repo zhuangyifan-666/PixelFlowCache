@@ -665,3 +665,37 @@ This file is updated by Stage 0 inspection, smoke, and baseline scripts.
 - FID blocker: `No supported FID backend found. Install one of: pip install torch-fidelity, pip install clean-fid, or pip install torchmetrics[image].`
 - third-party cleanup: generated `__pycache__` files in JiT/DeCo were removed or restored after inspection.
 - new weights downloaded: none.
+
+## Stage 4A Collection Cleanup - 2026-06-08T05:41:36Z
+
+- current `git rev-parse HEAD`: 1a558623c6bef172621356ce9a15504d0aff16f2
+- purpose: fix Stage 4A result collection and plotting so smoke rows and 50k rows are not mixed.
+- code changes:
+  - `scripts/collect_stage4a_fid_results.py` now supports `--run-id`, `--num-images`, and `--model`.
+  - `speedup_vs_no_cache` is computed within `(model, run_id, num_images)` groups.
+  - summary rows now include `run_id` and `reference_key`.
+  - `scripts/plot_stage4a_full_eval.py` now supports `--run-id` and `--num-images`; mixed summaries default to the largest `num_images` with a warning.
+- artifact regeneration:
+  - no generation was rerun.
+  - no FID/IS evaluation was rerun.
+  - 50k FID results were collected from existing `logs/stage4a/fid/stage4a_n50000_seed0/**/fid_results.json` files.
+  - clean summary written to `logs/stage4a/summary/stage4a_n50000_seed0_clean`.
+  - figures regenerated from the clean 50k rows under ignored `outputs/stage4a/figures/`.
+- clean summary validation:
+  - row count: 10.
+  - JiT rows: 5.
+  - DeCo rows: 5.
+  - run id: `stage4a_n50000_seed0` for all rows.
+  - num images: `50000` for all rows.
+  - 100-image smoke rows: excluded.
+- tests:
+  - targeted Stage 4A collection/plot tests passed.
+  - `conda run -n jit python scripts/run_stage0_smoke.py` passed.
+  - `conda run -n jit pytest -q` passed with 97 tests and 2 CUDA-unavailable warnings.
+  - `pytest.ini` now limits test discovery to `tests/` and excludes ignored artifact directories, so `pytest -q` does not recursively scan large `outputs/` and `logs/` trees.
+- artifact status: `logs/`, `outputs/`, generated figures, checkpoints, datasets, and generated images remain ignored and should not be committed.
+
+## Stage 0 Smoke - 2026-06-08T05:42:22.729234+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula

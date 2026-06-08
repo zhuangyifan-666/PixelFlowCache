@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,40 @@ def _float(row: dict[str, Any], key: str) -> float | None:
 
 def _label(row: dict[str, Any]) -> str:
     return f"{row.get('model')}:{row.get('method')}"
+
+
+def _int_value(row: dict[str, Any], key: str) -> int | None:
+    value = row.get(key)
+    if value in ("", None, "None"):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def filter_rows_for_plot(
+    rows: list[dict[str, str]],
+    *,
+    run_id: str | None = None,
+    num_images: int | None = None,
+    warn: bool = True,
+) -> list[dict[str, str]]:
+    filtered = [row for row in rows if not run_id or row.get("run_id") == run_id]
+    available_num_images = sorted({value for row in filtered if (value := _int_value(row, "num_images")) is not None})
+    selected_num_images = num_images
+    if selected_num_images is None and len(available_num_images) > 1:
+        selected_num_images = available_num_images[-1]
+        if warn:
+            print(
+                "Warning: summary contains multiple num_images values "
+                f"{available_num_images}; plotting only {selected_num_images}. "
+                "Pass --num-images to choose explicitly.",
+                file=sys.stderr,
+            )
+    if selected_num_images is not None:
+        filtered = [row for row in filtered if _int_value(row, "num_images") == selected_num_images]
+    return filtered
 
 
 def _scatter(rows: list[dict[str, str]], y_key: str, ylabel: str, path: Path) -> None:
@@ -75,8 +110,17 @@ def _bar(rows: list[dict[str, str]], key: str, ylabel: str, path: Path) -> None:
     plt.close(fig)
 
 
-def plot_stage4a(summary_dir: Path, output_dir: Path | None = None) -> list[Path]:
+def plot_stage4a(
+    summary_dir: Path,
+    output_dir: Path | None = None,
+    *,
+    run_id: str | None = None,
+    num_images: int | None = None,
+) -> list[Path]:
     rows = _read_csv(summary_dir / "stage4a_results.csv")
+    rows = filter_rows_for_plot(rows, run_id=run_id, num_images=num_images)
+    if not rows:
+        raise ValueError("No Stage 4A rows remain after plot filters.")
     out = output_dir or ROOT / "outputs/stage4a/figures"
     paths = [
         out / "stage4a_fid_vs_speedup.png",
@@ -95,8 +139,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Plot Stage 4A full evaluation summary.")
     parser.add_argument("--summary-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--run-id")
+    parser.add_argument("--num-images", type=int)
     args = parser.parse_args()
-    for path in plot_stage4a(args.summary_dir.resolve(), args.output_dir.resolve() if args.output_dir else None):
+    for path in plot_stage4a(
+        args.summary_dir.resolve(),
+        args.output_dir.resolve() if args.output_dir else None,
+        run_id=args.run_id,
+        num_images=args.num_images,
+    ):
         print(path)
     return 0
 
