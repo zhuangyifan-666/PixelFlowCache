@@ -699,3 +699,7 @@ This file is updated by Stage 0 inspection, smoke, and baseline scripts.
 
 - smoke test passed: True
 - checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
+## Stage 0 Smoke - 2026-06-08T06:54:07.301117+00:00
+
+- smoke test passed: True
+- checks: xpred scalar t, xpred vector t, token t broadcast, vpred raw, euler sampler, cfg formula
