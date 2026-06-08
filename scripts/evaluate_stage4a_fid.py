@@ -52,7 +52,75 @@ def _write_results(path: Path, row: dict[str, Any]) -> None:
         writer.writerow(row)
 
 
+def _load_fid_statistics(path: Path) -> dict[str, Any]:
+    import numpy as np
+
+    with np.load(path) as data:
+        if {"mu", "sigma"}.issubset(data.files):
+            mu_key, sigma_key = "mu", "sigma"
+        elif {"m", "s"}.issubset(data.files):
+            mu_key, sigma_key = "m", "s"
+        else:
+            raise ValueError(f"Unsupported FID stats file keys in {path}: {sorted(data.files)}")
+        return {
+            "mu": np.asarray(data[mu_key]),
+            "sigma": np.asarray(data[sigma_key]),
+        }
+
+
+def _align_fid_statistics_dtype(fake_stats: dict[str, Any], ref_stats: dict[str, Any]) -> dict[str, Any]:
+    aligned = dict(ref_stats)
+    for key in ("mu", "sigma"):
+        fake_value = fake_stats.get(key)
+        ref_value = aligned.get(key)
+        fake_dtype = getattr(fake_value, "dtype", None)
+        if fake_dtype is not None and hasattr(ref_value, "astype"):
+            aligned[key] = ref_value.astype(fake_dtype, copy=False)
+    return aligned
+
+
+def _compute_with_torch_fidelity_stats_file(args: argparse.Namespace) -> dict[str, Any]:
+    from torch_fidelity.metric_fid import fid_featuresdict_to_statistics, fid_statistics_to_metric
+    from torch_fidelity.metric_isc import isc_featuresdict_to_metric
+    from torch_fidelity.utils import create_feature_extractor, extract_featuresdict_from_input_id_cached
+
+    if "kid" in args.metrics:
+        raise ValueError("--fid-stats contains only FID reference statistics; provide --real-dir to compute KID.")
+
+    feature_layer_isc = "logits_unbiased"
+    feature_layer_fid = "2048"
+    feature_layers = []
+    if "is" in args.metrics:
+        feature_layers.append(feature_layer_isc)
+    if "fid" in args.metrics:
+        feature_layers.append(feature_layer_fid)
+
+    kwargs: dict[str, Any] = {
+        "input1": str(args.fake_dir),
+        "cuda": args.device.startswith("cuda"),
+        "batch_size": args.batch_size,
+        "feature_extractor": "inception-v3-compat",
+        "feature_layer_isc": feature_layer_isc,
+        "feature_layer_fid": feature_layer_fid,
+        "verbose": True,
+    }
+    feat_extractor = create_feature_extractor(kwargs["feature_extractor"], feature_layers, **kwargs)
+    featuresdict = extract_featuresdict_from_input_id_cached(1, feat_extractor, **kwargs)
+
+    metrics: dict[str, Any] = {}
+    if "is" in args.metrics:
+        metrics.update(isc_featuresdict_to_metric(featuresdict, feature_layer_isc, **kwargs))
+    if "fid" in args.metrics:
+        fake_stats = fid_featuresdict_to_statistics(featuresdict, feature_layer_fid)
+        ref_stats = _align_fid_statistics_dtype(fake_stats, _load_fid_statistics(args.fid_stats))
+        metrics.update(fid_statistics_to_metric(fake_stats, ref_stats, kwargs["verbose"]))
+    return {str(key): float(value) for key, value in metrics.items()}
+
+
 def _compute_with_torch_fidelity(args: argparse.Namespace) -> dict[str, Any]:
+    if args.fid_stats and "fid" in args.metrics:
+        return _compute_with_torch_fidelity_stats_file(args)
+
     from torch_fidelity import calculate_metrics
 
     kwargs: dict[str, Any] = {
@@ -64,11 +132,9 @@ def _compute_with_torch_fidelity(args: argparse.Namespace) -> dict[str, Any]:
         "kid": "kid" in args.metrics,
         "verbose": True,
     }
-    if args.fid_stats:
-        kwargs["fid_statistics_file"] = str(args.fid_stats)
-    elif args.real_dir:
+    if args.real_dir:
         kwargs["input2"] = str(args.real_dir)
-    else:
+    elif "fid" in args.metrics or "kid" in args.metrics:
         raise ValueError("Real reference is required for torch_fidelity FID")
     metrics = calculate_metrics(**kwargs)
     return {str(key): float(value) for key, value in metrics.items()}
@@ -168,4 +234,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
