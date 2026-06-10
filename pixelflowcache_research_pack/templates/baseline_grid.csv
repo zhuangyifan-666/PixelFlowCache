@@ -1,9 +1,0 @@
-baseline,cache_type,key_hyperparams,models,fairness_note,primary_purpose
-fewer_steps,none,steps=25/33/50/75,all,same solver/cfg/time grid style,compare against simple speedup
-fixed_block_cache,block,K=2/3/4/5 layers=all/mid/deep,all,same latency budget,minimum cache baseline
-layerwise_cache,layer,selected_layers by smoothness,all,selection from profiling only,layer selection baseline
-ToCa_like,token,token_ratio=0.25/0.5/0.75,all where feasible,count gather/scatter latency,fine-grained token baseline
-TeaCache_like,timestep/output,threshold on time/input delta,all,training-free,low-cost temporal signal baseline
-DiCache_like,online_probe,probe_layers=2/4 thresholds,all,probe cost included,adaptive runtime cache baseline
-FoCa_like,forecast_calibrate,history=2/3 calibration=on/off,all,calibration cost included,forecasting/cache correction baseline
-PixelFlowCache,proposed,velocity/branch/solver/cfg aware,all,same latency budgets,proposed method

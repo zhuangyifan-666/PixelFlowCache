@@ -1,1 +1,0 @@
-run_id,model,method,resolution,steps,solver,cfg_scale,speedup,latency_ms,peak_mem_gb,FID,IS,sFID,LPIPS_to_full,DINO_sim_to_full,Freq_L,Freq_M,Freq_H,notes

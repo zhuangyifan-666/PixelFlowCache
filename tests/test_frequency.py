@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from pfc.profiling.frequency import fft_frequency_bands, frequency_delta_bands
+from pfc.diagnostics.frequency import fft_frequency_bands, frequency_delta_bands
 
 
 def test_fft_frequency_bands_bchw() -> None:
@@ -20,4 +20,3 @@ def test_frequency_delta_bands() -> None:
     record = frequency_delta_bands(current, previous)
     assert record["total_energy"] > 0
     assert "rel_l2_delta" in record
-

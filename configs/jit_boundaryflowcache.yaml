@@ -1,0 +1,39 @@
+model:
+  name: JiT-B/16
+  family: JiT
+  prediction: x_pred
+  resolution: 256
+
+paths:
+  repo: third_party/JiT
+  checkpoint_dir: ckpts/JiT/JiT-B-16-256
+  imagenet_root: /path/to/ILSVRC
+
+generation:
+  reference_steps: 50
+  cfg_scale: 3.0
+  noise_scale: 1.0
+  default_batch_size: 8
+
+methods:
+  no_cache_50:
+    type: reference
+    steps: 50
+  bfc_quality_t02_08:
+    type: boundary_flow_cache
+    steps: 50
+    cache_layers: all
+    cache_interval: 2
+    active_t: [0.2, 0.8]
+  bfc_speed_t02_10:
+    type: boundary_flow_cache
+    steps: 50
+    cache_layers: all
+    cache_interval: 2
+    active_t: [0.2, 1.0]
+  reduced_steps_35:
+    type: reduced_steps
+    steps: 35
+  reduced_steps_30:
+    type: reduced_steps
+    steps: 30

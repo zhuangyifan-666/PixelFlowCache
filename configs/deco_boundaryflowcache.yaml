@@ -1,0 +1,41 @@
+model:
+  name: DeCo ImageNet-256
+  family: DeCo
+  prediction: velocity
+  resolution: 256
+
+paths:
+  repo: third_party/DeCo
+  config: third_party/DeCo/configs_c2i/DeCo_XL.yaml
+  checkpoint: ckpts/DeCo/imagenet256_epoch800/imagenet256_epoch800.ckpt
+  imagenet_root: /path/to/ILSVRC
+
+generation:
+  reference_steps: 50
+  cfg_scale: 3.2
+  cfg_interval: [0.1, 1.0]
+  default_batch_size: 4
+
+methods:
+  no_cache_50:
+    type: reference
+    steps: 50
+  bfc_all_candidates_t02_10:
+    type: boundary_flow_cache
+    steps: 50
+    cache_units: all_candidates
+    cache_interval: 2
+    active_t: [0.2, 1.0]
+  bfc_backbone_plus_final_t02_10:
+    type: boundary_flow_cache
+    steps: 50
+    cache_units: backbone_plus_final
+    cache_interval: 2
+    active_t: [0.2, 1.0]
+  reduced_steps_35:
+    type: reduced_steps
+    steps: 35
+    note: Timing anomaly observed in the 50k run; not used as the main speed baseline.
+  reduced_steps_30:
+    type: reduced_steps
+    steps: 30

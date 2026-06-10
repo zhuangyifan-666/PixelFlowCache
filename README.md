@@ -1,279 +1,121 @@
-# PixelFlowCache
+# BoundaryFlowCache / PixelFlowCache
 
-PixelFlowCache is a research codebase for studying no-cache baselines, profiling, and cache acceleration for pixel-space flow diffusion models. The current implementation status is **Stage 4A full inference and FID-ready evaluation pipeline**.
+BoundaryFlowCache is a compact implementation of boundary-aware caching for pixel-space flow diffusion models. The retained code focuses on final 50-step generation, BoundaryFlowCache acceleration, reduced-step baselines, and FID/IS evaluation.
 
-Stage 2 implements the first actual compute-skipping baseline: fixed-interval whole-block cache for JiT Transformer blocks. Stage 2B extends that baseline with timestep windows, layer-group sweeps, repeated timing, and velocity-error diagnostics. Stage 2C focuses on controlled JiT window ablations and local-error probes. Stage 2D validates the best JiT fixed whole-backbone cache windows and seed stability. Stage 3A benchmarks JiT BackboneCache presets against reduced-step no-cache baselines. Stage 3B tests whether the same coarse boundary-cache idea is feasible for direct-v-pred DeCo. Stage 3B2 decomposes DeCo final, decoder, and backbone cache contributions. Stage 3C synthesizes JiT and DeCo into a boundary-aware PixelFlowCache analysis under the working method name BoundaryFlowCache. Stage 4A adds full-generation, FID-ready evaluation, command-plan, result collection, and plotting scripts. Long inference and FID runs are launched manually by the user, not automatically by Codex. The project still does not implement token cache, adaptive online policy, solver-aware cache, frequency-aware cache, calibration, or a final full PixelFlowCache method.
+## Supported Models
 
-## Quickstart on this server
+- JiT-B/16 ImageNet-256
+- DeCo ImageNet-256
 
-```bash
-cd /mnt/iset/nfs-main/private/zhuangyifan/PixelFlowCache
-bash scripts/setup_third_party.sh
-python scripts/inspect_repos.py
-python scripts/run_stage0_smoke.py
-pytest -q
-bash scripts/run_official_jit_baseline.sh
-bash scripts/run_official_deco_baseline.sh
-```
+## Main 50k Results
 
-## Stage 1 Profiling
+| model | method | steps | speedup vs no-cache | FID | IS |
+|---|---|---:|---:|---:|---:|
+| JiT | no_cache_50 | 50 | 1.000 | 4.173 | 279.086 |
+| JiT | bfc_quality_t02_08 | 50 | 1.462 | 4.247 | 276.805 |
+| JiT | bfc_speed_t02_10 | 50 | 1.757 | 4.287 | 277.536 |
+| JiT | reduced_steps_35 | 35 | 1.557 | 4.677 | 283.538 |
+| JiT | reduced_steps_30 | 30 | 1.757 | 5.179 | 291.259 |
+| DeCo | no_cache_50 | 50 | 1.000 | 2.057 | 316.068 |
+| DeCo | bfc_all_candidates_t02_10 | 50 | 1.652 | 2.359 | 307.574 |
+| DeCo | bfc_backbone_plus_final_t02_10 | 50 | 1.559 | 2.359 | 307.574 |
+| DeCo | reduced_steps_30 | 30 | 1.602 | 2.671 | 304.857 |
 
-Use one GPU by default:
+The DeCo `reduced_steps_35` run had a timing anomaly and is documented in [docs/RESULTS_50K.md](docs/RESULTS_50K.md), but it is not used as the main speed baseline.
 
-```bash
-export PFC_CUDA_DEVICES=0
-bash scripts/run_profile_jit_stage1.sh
-bash scripts/run_profile_deco_stage1.sh
-```
-
-Summarize and plot a run:
+## Installation
 
 ```bash
-python scripts/summarize_stage1_profiles.py --run-dir logs/stage1/jit/<run_id>
-python scripts/plot_stage1_profiles.py --run-dir logs/stage1/jit/<run_id>
+git submodule update --init --recursive third_party/JiT third_party/DeCo
 ```
 
-See [docs/STAGE1_PROFILING.md](docs/STAGE1_PROFILING.md) for details.
+Expected local assets:
 
-## Stage 2 Fixed-Interval JiT Block Cache
-
-Use one GPU by default:
-
-```bash
-export PFC_CUDA_DEVICES=0
-bash scripts/run_jit_stage2_cache.sh
-```
-
-Run the fast grid:
-
-```bash
-export PFC_STAGE2_GRID_FAST=1
-bash scripts/run_jit_stage2_grid.sh
-```
-
-Plot grid results:
-
-```bash
-python scripts/plot_stage2_jit_cache.py --grid-dir logs/stage2/jit_grid/<run_id>
-```
-
-See [docs/STAGE2_FIXED_BLOCK_CACHE.md](docs/STAGE2_FIXED_BLOCK_CACHE.md) for details.
-
-## Stage 2B Timestep Windows And Diagnostics
-
-Use one GPU by default:
-
-```bash
-export PFC_CUDA_DEVICES=0
-bash scripts/run_jit_stage2b_cache.sh
-```
-
-Run the fast Stage 2B sweep:
-
-```bash
-export PFC_STAGE2B_SWEEP_FAST=1
-bash scripts/run_jit_stage2b_sweep.sh
-```
-
-Plot Stage 2B sweep results:
-
-```bash
-python scripts/plot_stage2b_jit.py --sweep-dir logs/stage2b/jit_sweep/<run_id>
-```
-
-See [docs/STAGE2B_TIMESTEP_WINDOW_AND_DIAGNOSTICS.md](docs/STAGE2B_TIMESTEP_WINDOW_AND_DIAGNOSTICS.md) for details.
-
-## Stage 2C JiT Window Ablation And Probe
-
-Use one GPU by default:
-
-```bash
-export PFC_CUDA_DEVICES=0
-bash scripts/run_jit_stage2c_window_ablation.sh
-bash scripts/run_jit_stage2c_probe.sh
-```
-
-Plot Stage 2C results:
-
-```bash
-python scripts/plot_stage2c_jit.py \
-  --window-dir logs/stage2c/jit_window_ablation/<run_id> \
-  --probe-dir logs/stage2c/jit_probe/<run_id>
-```
-
-Optional validation:
-
-```bash
-bash scripts/run_jit_stage2c_validate.sh
-```
-
-See [docs/STAGE2C_WINDOW_ABLATION_AND_PROBE.md](docs/STAGE2C_WINDOW_ABLATION_AND_PROBE.md) and [docs/STAGE2C_BOUNDARY_CACHE_OBSERVATION.md](docs/STAGE2C_BOUNDARY_CACHE_OBSERVATION.md) for details.
-
-## Stage 2D JiT Validation And Seed Stability
-
-Use one GPU by default:
-
-```bash
-export PFC_CUDA_DEVICES=0
-bash scripts/run_jit_stage2d_validate_best_windows.sh
-bash scripts/run_jit_stage2d_first_hit_delay.sh
-```
-
-Optional seed sweep:
-
-```bash
-bash scripts/run_jit_stage2d_seed_sweep.sh
-```
-
-Plot Stage 2D results:
-
-```bash
-python scripts/plot_stage2d_jit.py \
-  --validate-dir logs/stage2d/jit_validate_best/<run_id> \
-  --first-hit-dir logs/stage2d/jit_first_hit_delay/<run_id> \
-  --seed-sweep-dir logs/stage2d/jit_seed_sweep/<run_id>
-```
-
-See [docs/STAGE2D_VALIDATION_AND_SEED_STABILITY.md](docs/STAGE2D_VALIDATION_AND_SEED_STABILITY.md) for details.
-
-## Stage 3A JiT BackboneCache Benchmark
-
-Use one GPU by default:
-
-```bash
-export PFC_CUDA_DEVICES=0
-bash scripts/run_jit_stage3a_backbone_benchmark.sh
-```
-
-Plot and generate report tables:
-
-```bash
-BENCHMARK_DIR="$(ls -td logs/stage3a/jit_backbone_benchmark/* | head -n 1)"
-python scripts/plot_stage3a_jit.py --benchmark-dir "$BENCHMARK_DIR"
-python scripts/make_stage3a_report_tables.py --benchmark-dir "$BENCHMARK_DIR"
-```
-
-Optional reduced-step only and 32-sample subset:
-
-```bash
-bash scripts/run_jit_stage3a_reduced_steps.sh
-bash scripts/run_jit_stage3a_backbone_benchmark_32samples.sh
-```
-
-See [docs/STAGE3A_JIT_BACKBONE_CACHE_BENCHMARK.md](docs/STAGE3A_JIT_BACKBONE_CACHE_BENCHMARK.md) for details.
-
-## Stage 3B DeCo Direct-Velocity Cache Feasibility
-
-Use one GPU by default:
-
-```bash
-export PFC_CUDA_DEVICES=0
-bash scripts/run_deco_stage3b_inspect.sh
-bash scripts/run_deco_stage3b_cache.sh
-bash scripts/run_deco_stage3b_benchmark.sh
-```
-
-Plot Stage 3B results:
-
-```bash
-BENCHMARK_DIR="$(ls -td logs/stage3b/deco_benchmark/* | head -n 1)"
-python scripts/plot_stage3b_deco.py --benchmark-dir "$BENCHMARK_DIR"
-```
-
-See [docs/STAGE3B_DECO_DIRECT_VELOCITY_CACHE.md](docs/STAGE3B_DECO_DIRECT_VELOCITY_CACHE.md) for details.
-
-## Stage 3B2 DeCo Cache Decomposition
-
-Use one GPU by default:
-
-```bash
-export PFC_CUDA_DEVICES=0
-bash scripts/run_deco_stage3b2_decomposition.sh
-```
-
-Plot and generate report tables:
-
-```bash
-DECOMP_DIR="$(ls -td logs/stage3b2/deco_decomposition/* | head -n 1)"
-python scripts/plot_stage3b2_deco.py --decomposition-dir "$DECOMP_DIR"
-python scripts/make_stage3b2_report_tables.py --decomposition-dir "$DECOMP_DIR"
-```
-
-Optional seed sweep and validation:
-
-```bash
-bash scripts/run_deco_stage3b2_seed_sweep.sh
-bash scripts/run_deco_stage3b2_validate.sh
-```
-
-See [docs/STAGE3B2_DECO_CACHE_DECOMPOSITION.md](docs/STAGE3B2_DECO_CACHE_DECOMPOSITION.md) for details.
-
-## Stage 3C BoundaryFlowCache Synthesis
-
-Generate unified JiT and DeCo result tables from existing Stage 3A/3B2 logs:
-
-```bash
-python scripts/collect_stage3c_unified_results.py
-UNIFIED_DIR="$(ls -td logs/stage3c/unified/* | head -n 1)"
-python scripts/make_stage3c_paper_tables.py --unified-dir "$UNIFIED_DIR"
-python scripts/plot_stage3c_unified.py --unified-dir "$UNIFIED_DIR"
-```
-
-Optional DeCo 50-step multi-seed validation:
-
-```bash
-export PFC_CUDA_DEVICES=0
-export CUDA_VISIBLE_DEVICES=0
-conda run -n deco python scripts/run_deco_stage3c_50step_seed_validation.py
-```
-
-See [docs/STAGE3C_BOUNDARY_FLOW_CACHE_SYNTHESIS.md](docs/STAGE3C_BOUNDARY_FLOW_CACHE_SYNTHESIS.md) for details.
-
-## Stage 4A Full Inference And FID-Ready Evaluation
-
-Print a 100-image smoke command plan without running generation:
-
-```bash
-bash scripts/print_stage4a_smoke_commands.sh
-```
-
-Write a launch script for manual review:
-
-```bash
-python scripts/run_stage4a_full_eval_plan.py \
-  --models jit,deco \
-  --num-images 100 \
-  --out-script scripts/launch_stage4a_smoke_100.sh
-```
-
-Dry-run individual scripts:
-
-```bash
-python scripts/run_jit_stage4a_generate.py --method no_cache_50 --dry-run
-python scripts/run_deco_stage4a_generate.py --method no_cache_50 --dry-run
-python scripts/evaluate_stage4a_fid.py --help
-python scripts/prepare_stage4a_imagenet_reference.py --dry-run
-```
-
-After the user manually runs generation and FID commands:
-
-```bash
-python scripts/collect_stage4a_fid_results.py
-SUMMARY_DIR="$(ls -td logs/stage4a/summary/* | head -n 1)"
-python scripts/plot_stage4a_full_eval.py --summary-dir "$SUMMARY_DIR"
-```
-
-See [docs/STAGE4A_FULL_INFERENCE_AND_FID.md](docs/STAGE4A_FULL_INFERENCE_AND_FID.md) for details. Do not use the Stage 0 JiT `torch_fidelity` stub for real FID.
-
-The default server paths are:
-
-- Project: `/mnt/iset/nfs-main/private/zhuangyifan/PixelFlowCache`
-- ImageNet: `/mnt/iset/nfs-main/public/datasets/ILSVRC`
-- JiT checkpoint dir: `ckpts/JiT/JiT-B-16-256`
+- JiT checkpoint: `ckpts/JiT/JiT-B-16-256/checkpoint-last.pth`
 - DeCo checkpoint: `ckpts/DeCo/imagenet256_epoch800/imagenet256_epoch800.ckpt`
+- ImageNet root: a local ImageFolder-compatible ILSVRC directory
+- Conda envs: `jit` for JiT/evaluation, `deco` for DeCo
 
-Use at most two GPUs for Stage 0 baselines and one GPU for Stage 1/Stage 2 runs by default. The scripts run `nvidia-smi`, select visible devices via `CUDA_VISIBLE_DEVICES`, and honor `PFC_CUDA_DEVICES`.
+Checkpoints, datasets, logs, outputs, and result bundles are ignored and are not part of the repository.
 
-See [docs/STAGE0_REPRO.md](docs/STAGE0_REPRO.md) for the full reproduction protocol.
+## Inference
 
-Datasets, checkpoints, generated samples, logs, and other large binaries are intentionally ignored and should not be committed.
+JiT example:
+
+```bash
+conda run -n jit python scripts/run_jit_stage4a_generate.py \
+  --method bfc_speed_t02_10 \
+  --num-images 1000 \
+  --batch-size 8 \
+  --run-id demo_n1000_seed0 \
+  --save-png \
+  --no-save-npz
+```
+
+DeCo example:
+
+```bash
+conda run -n deco python scripts/run_deco_stage4a_generate.py \
+  --method bfc_all_candidates_t02_10 \
+  --num-images 1000 \
+  --batch-size 4 \
+  --run-id demo_n1000_seed0 \
+  --save-png \
+  --no-save-npz
+```
+
+Print command plans without running generation:
+
+```bash
+bash scripts/print_stage4a_full_50k_commands.sh
+```
+
+## FID And IS
+
+Prepare an ImageNet reference folder if needed:
+
+```bash
+conda run -n jit python scripts/prepare_stage4a_imagenet_reference.py --dry-run
+```
+
+Evaluate a generated folder:
+
+```bash
+conda run -n jit python scripts/evaluate_stage4a_fid.py \
+  --fake-dir outputs/stage4a/full_generation/jit/demo_n1000_seed0/bfc_speed_t02_10/images \
+  --real-dir /path/to/imagenet/val \
+  --backend auto \
+  --metrics fid,is \
+  --out logs/stage4a/fid/demo_n1000_seed0/jit/bfc_speed_t02_10/fid_results.json
+```
+
+Collect and plot existing results:
+
+```bash
+conda run -n jit python scripts/collect_stage4a_fid_results.py \
+  --root outputs/stage4a/full_generation \
+  --fid-root logs/stage4a/fid \
+  --run-id stage4a_n50000_seed0 \
+  --num-images 50000 \
+  --out-dir logs/stage4a/summary/stage4a_n50000_seed0_clean
+
+conda run -n jit python scripts/plot_stage4a_full_eval.py \
+  --summary-dir logs/stage4a/summary/stage4a_n50000_seed0_clean \
+  --num-images 50000
+```
+
+## Repository Layout
+
+- `pfc/cache`: cache state, fixed-interval policy, cached module wrappers, JiT/DeCo BoundaryFlowCache wrappers
+- `pfc/eval`: method presets, label scheduling, generation IO, JiT/DeCo runtime helpers
+- `pfc/diagnostics`: lightweight tensor and frequency diagnostics used by retained runtime code
+- `scripts`: final generation, FID/IS, ImageNet reference, command planning, collection, plotting, and submodule setup utilities
+- `docs`: final method, setup, inference/FID, 50k results, and cleanup manifest
+
+## Not Included
+
+- Historical smoke, profiling, and exploratory ablation scripts
+- Checkpoints, datasets, generated samples, logs, plots, or uploaded result bundles
+- Token cache, adaptive online policy, solver-aware cache, calibration, or frequency-aware cache
+
+See [docs/METHOD.md](docs/METHOD.md), [docs/SETUP.md](docs/SETUP.md), and [docs/INFERENCE_AND_FID.md](docs/INFERENCE_AND_FID.md) for details.

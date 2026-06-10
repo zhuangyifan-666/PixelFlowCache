@@ -10,12 +10,37 @@ import torch.nn as nn
 from pfc.cache.cache_state import RuntimeCacheState
 from pfc.cache.cached_module import CachedModule
 from pfc.cache.fixed_interval_policy import FixedIntervalCachePolicy
-from pfc.profiling.module_selectors import categorize_deco_module, is_deco_stage2_cache_candidate
 
 
 _BACKBONE_RE = re.compile(r"^blocks\.\d+$")
 _DECODER_RE = re.compile(r"^dec_net\.res_blocks\.\d+$")
 _FINAL_NAMES = {"final_layer", "dec_net.final_layer"}
+
+
+def categorize_deco_module(name: str, module: nn.Module | None = None) -> str:
+    lower = name.lower()
+    class_name = module.__class__.__name__.lower() if module is not None else ""
+    if any(token in lower for token in ("adaln", "modulation", "norm", "q_norm", "k_norm")):
+        return "norm_or_modulation"
+    if "decoder" in lower or lower.startswith("dec_net") or ".decoder" in lower:
+        if "final" in lower or "head" in lower:
+            return "final"
+        return "decoder"
+    if "final" in lower or "head" in lower:
+        return "final"
+    if "blocks" in lower or "cond_blocks" in lower or "block" in class_name:
+        return "block"
+    return "other"
+
+
+def is_deco_cache_candidate(name: str, module: nn.Module | None = None) -> bool:
+    category = categorize_deco_module(name, module)
+    lower = name.lower()
+    if category == "norm_or_modulation":
+        return False
+    if any(token in lower for token in ("norm", "adaln", "modulation", "embed", "dropout")):
+        return False
+    return category in {"block", "decoder", "final"}
 
 
 def deco_cache_unit_category(name: str, module: nn.Module | None = None) -> str:
@@ -46,7 +71,7 @@ def is_safe_deco_cache_unit(name: str, module: nn.Module | None = None) -> bool:
         return False
     if module is not None and _is_tiny_module(module):
         return False
-    return category in {"backbone_block", "decoder_block", "final_head"} and is_deco_stage2_cache_candidate(name, module)
+    return category in {"backbone_block", "decoder_block", "final_head"} and is_deco_cache_candidate(name, module)
 
 
 def parse_deco_cache_spec(spec: str, module_candidates: list[str]) -> list[str]:

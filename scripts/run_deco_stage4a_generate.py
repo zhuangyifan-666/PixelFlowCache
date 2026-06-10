@@ -64,8 +64,8 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
 
     from pfc.cache.cache_state import RuntimeCacheState
     from pfc.cache.deco_wrap import parse_deco_cache_spec, wrap_deco_modules
-    from scripts.deco_stage3b_common import (
-        DeCoStage3BConfig,
+    from pfc.eval.deco_runtime import (
+        DeCoRuntimeConfig,
         build_deco_sampler,
         candidate_names,
         load_deco_denoiser,
@@ -81,7 +81,7 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     labels = make_imagenet_class_balanced_labels(args.num_images)
     paths = resolved["paths"]
     save_label_schedule(labels, paths["base_dir"])
-    config = DeCoStage3BConfig(
+    config = DeCoRuntimeConfig(
         deco_dir=args.deco_dir.resolve(),
         ckpt_path=args.deco_ckpt.resolve(),
         config_path=args.deco_config.resolve(),
@@ -98,10 +98,7 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         active_t_min=preset.active_t_min,
         active_t_max=preset.active_t_max,
         cache_units=preset.deco_cache_units or "none",
-        timing_repeats=1,
-        warmup_runs=0,
         resolution=args.resolution,
-        save_diagnostics=False,
     )
     denoiser = load_deco_denoiser(config, device)
     cache_state: RuntimeCacheState | None = None

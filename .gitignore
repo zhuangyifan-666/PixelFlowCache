@@ -5,6 +5,10 @@ ckpts/
 checkpoints/
 data/
 datasets/
+*.tgz
+*.tar.gz
+*.zip
+*.npz
 *.pt
 *.pth
 *.ckpt

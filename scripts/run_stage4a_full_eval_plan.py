@@ -52,7 +52,7 @@ def build_plan(args: argparse.Namespace) -> list[str]:
         "",
         "# Stage 4A command plan. Review and run commands manually.",
         "# Set PFC_CUDA_DEVICES before running, for example: export PFC_CUDA_DEVICES=0",
-        "cd /mnt/iset/nfs-main/private/zhuangyifan/PixelFlowCache",
+        f"cd {_q(ROOT)}",
         "",
     ]
     eval_refs = []

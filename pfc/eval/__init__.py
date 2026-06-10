@@ -1,2 +1,1 @@
-"""Evaluation helpers for Stage 4A generation and FID-ready pipelines."""
-
+"""Generation and evaluation helpers for final BoundaryFlowCache runs."""

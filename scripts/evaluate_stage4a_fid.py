@@ -18,20 +18,7 @@ if str(ROOT) not in sys.path:
 from pfc.eval.generation_io import count_images  # noqa: E402
 
 
-def _is_stage0_torch_fidelity_stub() -> bool:
-    spec = importlib.util.find_spec("torch_fidelity")
-    if spec is None or spec.origin is None:
-        return False
-    try:
-        origin = Path(spec.origin).resolve()
-    except OSError:
-        return False
-    return ROOT / "scripts/jit_stubs" in origin.parents
-
-
 def select_backend(requested: str) -> tuple[str | None, str]:
-    if _is_stage0_torch_fidelity_stub():
-        return None, "Refusing to use Stage 0 torch_fidelity stub from scripts/jit_stubs."
     candidates = ["torch_fidelity", "cleanfid", "torchmetrics"] if requested == "auto" else [requested]
     for name in candidates:
         if importlib.util.find_spec(name) is not None:

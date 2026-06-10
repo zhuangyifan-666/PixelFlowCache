@@ -1,5 +1,12 @@
-"""Diagnostics helpers for cache quality analysis."""
+"""Lightweight diagnostics used by final BoundaryFlowCache runtime code."""
 
-from pfc.diagnostics.velocity_error import frequency_error_stats, image_error_stats, tensor_error_stats
+from pfc.diagnostics.frequency import fft_frequency_bands, frequency_delta_bands
+from pfc.diagnostics.tensor_stats import l2_norm, relative_l2_delta, summarize_tensor
 
-__all__ = ["frequency_error_stats", "image_error_stats", "tensor_error_stats"]
+__all__ = [
+    "fft_frequency_bands",
+    "frequency_delta_bands",
+    "l2_norm",
+    "relative_l2_delta",
+    "summarize_tensor",
+]

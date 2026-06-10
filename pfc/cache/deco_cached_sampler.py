@@ -5,8 +5,8 @@ from typing import Any
 import torch
 
 from pfc.cache.cache_state import RuntimeCacheState
-from pfc.profiling.frequency import fft_frequency_bands, frequency_delta_bands
-from pfc.profiling.tensor_stats import summarize_tensor
+from pfc.diagnostics.frequency import fft_frequency_bands, frequency_delta_bands
+from pfc.diagnostics.tensor_stats import summarize_tensor
 
 try:
     from src.diffusion.flow_matching.sampling import EulerSampler

@@ -35,9 +35,9 @@ def test_stage4a_plan_prints_generation_and_fid_commands(tmp_path: Path) -> None
     assert "Review and run commands manually" in out_script.read_text(encoding="utf-8")
 
 
-def test_stage4a_jit_runtime_helper_imports_sampler_from_stage2_cache() -> None:
+def test_stage4a_jit_runtime_helper_imports_sampler_from_final_runtime() -> None:
     _config_cls, _load_model, sample_jit = load_jit_runtime_helpers()
-    assert sample_jit.__module__ == "scripts.run_jit_stage2_cache"
+    assert sample_jit.__module__ == "pfc.eval.jit_runtime"
 
 
 def test_stage4a_jit_dry_run_serializes_paths(tmp_path: Path) -> None:

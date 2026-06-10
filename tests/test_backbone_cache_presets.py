@@ -34,7 +34,7 @@ def test_no_cache_preset_disables_policy() -> None:
     assert preset.cache_interval == 1
 
 
-def test_stage3a_required_preset_values() -> None:
+def test_boundary_cache_required_preset_values() -> None:
     presets = get_jit_backbone_cache_presets()
     assert presets["speed_t02_10"].active_t_max == 1.0
     assert presets["quality_t01_08_w2"].active_window_warmup_refreshes == 2
