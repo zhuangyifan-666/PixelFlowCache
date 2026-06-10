@@ -4,12 +4,7 @@ import json
 
 import torch
 
-from pfc.profiling.tensor_stats import (
-    cosine_similarity_flat,
-    relative_l2_delta,
-    summarize_delta,
-    summarize_tensor,
-)
+from pfc.diagnostics.tensor_stats import relative_l2_delta, summarize_tensor
 
 
 def test_summarize_tensor_json_serializable() -> None:
@@ -22,13 +17,10 @@ def test_summarize_tensor_json_serializable() -> None:
     assert record["has_nan"] is False
 
 
-def test_delta_and_cosine() -> None:
+def test_relative_l2_delta() -> None:
     previous = torch.tensor([1.0, 0.0])
     current = torch.tensor([2.0, 0.0])
     assert relative_l2_delta(current, previous) == 1.0
-    assert cosine_similarity_flat(current, previous) == 1.0
-    delta = summarize_delta(current, previous)
-    assert delta["delta_l2"] == 1.0
 
 
 def test_fp16_summary() -> None:
@@ -36,4 +28,3 @@ def test_fp16_summary() -> None:
     record = summarize_tensor(tensor)
     assert record["dtype"] == "torch.float16"
     assert record["mean"] == 1.0
-

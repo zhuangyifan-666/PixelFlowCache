@@ -43,7 +43,7 @@ def parse_layer_list(spec: str, num_blocks: int) -> list[int]:
         inner_spec = stripped.split(":", 1)[1]
         inner = set(parse_layer_list(inner_spec, num_blocks))
         return [idx for idx in range(num_blocks) if idx not in inner]
-    if normalized.startswith("topk:") or normalized.startswith("stage1top:"):
+    if normalized.startswith("topk:"):
         return _parse_topk(stripped, num_blocks)
     if "," in normalized or normalized.isdigit():
         layers = []

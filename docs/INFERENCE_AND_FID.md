@@ -1,0 +1,91 @@
+# Inference And FID
+
+This page describes the retained final utilities. The command-plan scripts print commands; they do not run generation or FID by themselves.
+
+## JiT Generation
+
+```bash
+conda run -n jit python scripts/run_jit_stage4a_generate.py \
+  --method bfc_speed_t02_10 \
+  --num-images 1000 \
+  --batch-size 8 \
+  --seed 0 \
+  --run-id demo_n1000_seed0 \
+  --save-png \
+  --no-save-npz
+```
+
+Use `--dry-run` to validate paths without loading the model.
+
+## DeCo Generation
+
+```bash
+conda run -n deco python scripts/run_deco_stage4a_generate.py \
+  --method bfc_all_candidates_t02_10 \
+  --num-images 1000 \
+  --batch-size 4 \
+  --seed 0 \
+  --run-id demo_n1000_seed0 \
+  --save-png \
+  --no-save-npz
+```
+
+Use `--dry-run` to validate checkpoint and config paths without loading the model.
+
+## Command Plans
+
+```bash
+bash scripts/print_stage4a_smoke_commands.sh
+bash scripts/print_stage4a_proxy_fid_commands.sh
+bash scripts/print_stage4a_full_50k_commands.sh
+```
+
+For a custom plan:
+
+```bash
+conda run -n jit python scripts/run_stage4a_full_eval_plan.py \
+  --models jit,deco \
+  --num-images 50000 \
+  --out-script /tmp/pfc_stage4a_50k.sh
+```
+
+Review generated command plans before launching long jobs.
+
+## Reference Preparation
+
+```bash
+conda run -n jit python scripts/prepare_stage4a_imagenet_reference.py --dry-run
+```
+
+Pass `--source-root`, `--out-dir`, and `--limit` as needed. The script is designed to prepare a real-image folder for FID/IS tools; it does not belong in git.
+
+## FID/IS Evaluation
+
+```bash
+conda run -n jit python scripts/evaluate_stage4a_fid.py \
+  --fake-dir outputs/stage4a/full_generation/jit/demo_n1000_seed0/bfc_speed_t02_10/images \
+  --real-dir /path/to/imagenet/val \
+  --backend auto \
+  --metrics fid,is \
+  --batch-size 64 \
+  --out logs/stage4a/fid/demo_n1000_seed0/jit/bfc_speed_t02_10/fid_results.json
+```
+
+Use the real `torch_fidelity`, `cleanfid`, or `torchmetrics` package. Do not use `scripts/jit_stubs` as an evaluation backend.
+
+## Collection And Plotting
+
+```bash
+conda run -n jit python scripts/collect_stage4a_fid_results.py \
+  --root outputs/stage4a/full_generation \
+  --fid-root logs/stage4a/fid \
+  --run-id stage4a_n50000_seed0 \
+  --num-images 50000 \
+  --out-dir logs/stage4a/summary/stage4a_n50000_seed0_clean
+
+conda run -n jit python scripts/plot_stage4a_full_eval.py \
+  --summary-dir logs/stage4a/summary/stage4a_n50000_seed0_clean \
+  --num-images 50000
+```
+
+The collector computes speedup within `(model, run_id, num_images)` groups so smoke and full-generation rows are not mixed.

@@ -67,10 +67,9 @@ def _make_noise_for_indices(indices: list[int], seed: int, img_size: int, noise_
 
 
 def load_jit_runtime_helpers() -> tuple[Any, Any, Any]:
-    from scripts.run_jit_stage2b_cache import Stage2BConfig, _load_jit_model
-    from scripts.run_jit_stage2_cache import _sample_jit
+    from pfc.eval.jit_runtime import JiTRuntimeConfig, load_jit_model, sample_jit
 
-    return Stage2BConfig, _load_jit_model, _sample_jit
+    return JiTRuntimeConfig, load_jit_model, sample_jit
 
 
 def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
@@ -80,7 +79,7 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     from pfc.cache.fixed_interval_policy import FixedIntervalCachePolicy
     from pfc.cache.wrap import parse_layer_list, wrap_jit_blocks
 
-    Stage2BConfig, _load_jit_model, sample_jit = load_jit_runtime_helpers()
+    JiTRuntimeConfig, load_jit_model, sample_jit = load_jit_runtime_helpers()
 
     if args.save_npz and args.num_images > 5000:
         raise RuntimeError("--save-npz is intended for small/proxy Stage 4A runs, not large 50k runs")
@@ -91,7 +90,7 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     labels = make_imagenet_class_balanced_labels(args.num_images)
     paths = resolved["paths"]
     save_label_schedule(labels, paths["base_dir"])
-    config = Stage2BConfig(
+    config = JiTRuntimeConfig(
         jit_dir=args.jit_dir.resolve(),
         ckpt_dir=args.jit_ckpt_dir.resolve(),
         run_id=args.run_id,
@@ -116,7 +115,7 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         warmup_runs=0,
         save_previews=False,
     )
-    model = _load_jit_model(config, device)
+    model = load_jit_model(config, device)
     cache_state: RuntimeCacheState | None = None
     if preset.method_type == "cache":
         num_blocks = len(model.net.blocks)
