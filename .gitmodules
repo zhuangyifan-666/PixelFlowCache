@@ -5,3 +5,6 @@
 	path = third_party/DeCo
 	url = https://github.com/Zehong-Ma/DeCo.git
 
+[submodule "baseline/SeaCache"]
+	path = baseline/SeaCache
+	url = https://github.com/jiwoogit/SeaCache.git
