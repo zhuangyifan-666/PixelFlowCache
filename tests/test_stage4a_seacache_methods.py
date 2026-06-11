@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -28,7 +29,7 @@ def test_jit_seacache_dry_run_with_fake_checkpoint(tmp_path: Path) -> None:
             "--method",
             "seacache_style",
             "--dynamic-cache-threshold",
-            "0.10",
+            "0.06",
             "--num-images",
             "10",
             "--jit-ckpt-dir",
@@ -42,8 +43,12 @@ def test_jit_seacache_dry_run_with_fake_checkpoint(tmp_path: Path) -> None:
         text=True,
         capture_output=True,
     )
-    assert "seacache_style" in result.stdout
-    assert "dynamic_cache" in result.stdout
+    payload = json.loads(result.stdout)
+    meta = payload["meta"]
+    assert meta["method_name"] == "seacache_style"
+    assert meta["dynamic_cache"]["threshold"] == 0.06
+    assert meta["resolved_dynamic_cache_threshold"] == 0.06
+    assert meta["method"]["resolved_dynamic_cache_threshold"] == 0.06
 
 
 def test_deco_seacache_dry_run_with_fake_checkpoint_and_config(tmp_path: Path) -> None:
@@ -58,7 +63,7 @@ def test_deco_seacache_dry_run_with_fake_checkpoint_and_config(tmp_path: Path) -
             "--method",
             "seacache_style",
             "--dynamic-cache-threshold",
-            "0.10",
+            "0.06",
             "--num-images",
             "10",
             "--deco-ckpt",
@@ -74,5 +79,9 @@ def test_deco_seacache_dry_run_with_fake_checkpoint_and_config(tmp_path: Path) -
         text=True,
         capture_output=True,
     )
-    assert "seacache_style" in result.stdout
-    assert "dynamic_cache" in result.stdout
+    payload = json.loads(result.stdout)
+    meta = payload["meta"]
+    assert meta["method_name"] == "seacache_style"
+    assert meta["dynamic_cache"]["threshold"] == 0.06
+    assert meta["resolved_dynamic_cache_threshold"] == 0.06
+    assert meta["method"]["resolved_dynamic_cache_threshold"] == 0.06

@@ -84,3 +84,50 @@ def test_stage4a_collect_filters_run_id_and_num_images(tmp_path: Path) -> None:
     assert {row["method"] for row in rows} == {"no_cache_50", "bfc"}
     assert {row["num_images"] for row in rows} == {50000}
     assert {row["run_id"] for row in rows} == {"stage4a_n50000_seed0"}
+
+
+def test_stage4a_collect_accepts_multiple_run_ids(tmp_path: Path) -> None:
+    root = tmp_path / "full_generation"
+    fid_root = tmp_path / "fid"
+    _write_method(
+        root,
+        fid_root,
+        model="jit",
+        run_id="stage4a_jit_seacache_theta0p06_n50000_seed0",
+        method="seacache_style",
+        num_images=50000,
+        latency_sec=1000,
+    )
+    _write_method(
+        root,
+        fid_root,
+        model="deco",
+        run_id="stage4a_deco_seacache_theta0p06_n50000_seed0",
+        method="seacache_style",
+        num_images=50000,
+        latency_sec=2000,
+    )
+    _write_method(
+        root,
+        fid_root,
+        model="jit",
+        run_id="stage4a_jit_seacache_theta0p06_n1000_seed0",
+        method="seacache_style",
+        num_images=1000,
+        latency_sec=20,
+    )
+
+    rows = collect_results(
+        root,
+        fid_root,
+        [],
+        run_id="stage4a_jit_seacache_theta0p06_n50000_seed0,stage4a_deco_seacache_theta0p06_n50000_seed0",
+        num_images=50000,
+    )
+
+    assert len(rows) == 2
+    assert {row["model"] for row in rows} == {"jit", "deco"}
+    assert {row["run_id"] for row in rows} == {
+        "stage4a_jit_seacache_theta0p06_n50000_seed0",
+        "stage4a_deco_seacache_theta0p06_n50000_seed0",
+    }

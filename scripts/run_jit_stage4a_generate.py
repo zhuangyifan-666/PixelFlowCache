@@ -57,8 +57,25 @@ def _dynamic_threshold(args: argparse.Namespace, preset: Any) -> float:
     if value is None:
         value = preset.dynamic_cache_threshold
     if value is None:
-        value = 0.10
+        value = 0.06
     return float(value)
+
+
+def _resolved_method_meta(args: argparse.Namespace, preset: Any) -> dict[str, Any]:
+    method = preset_to_json_dict(preset)
+    if preset.method_type == "dynamic_cache":
+        threshold = _dynamic_threshold(args, preset)
+        method.update(
+            {
+                "dynamic_cache_threshold": threshold,
+                "resolved_dynamic_cache_threshold": threshold,
+                "sea_beta": args.sea_beta,
+                "sea_proxy_downsample": args.sea_proxy_downsample,
+                "cache_units": "jit_blocks",
+                "selected_modules": (preset.cache_preset or {}).get("cache_layers", "all"),
+            }
+        )
+    return method
 
 
 def _dynamic_writer(path: Path | None):
@@ -185,6 +202,8 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
             cache_modules=set(selected_modules),
             solver_stages={"euler"},
         )
+        resolved["meta"]["selected_modules"] = selected_modules
+        resolved["meta"]["cache_units"] = "jit_blocks"
         wrap_jit_blocks(model, cache_state, adapter, selected_layer_ids)
 
     samples_for_npz = []
@@ -250,6 +269,8 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     cache_stats = cache_state.summary() if cache_state is not None else {"enabled": False, "hit_rate": 0.0}
     if dynamic_policy is not None:
         cache_stats["dynamic_cache"] = dynamic_policy.summary()
+        cache_stats["dynamic_cache_threshold"] = dynamic_policy.threshold
+        cache_stats["resolved_dynamic_cache_threshold"] = dynamic_policy.threshold
         resolved["meta"]["dynamic_cache_summary"] = dynamic_policy.summary()
     write_generation_meta(paths["latency"], {
         "latency_sec": latency,
@@ -301,12 +322,24 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
     run_id = args.run_id or _default_run_id(args.seed, args.num_images)
     args.run_id = run_id
     paths = prepare_generation_dir(args.output_root, preset.model_name, args.method, run_id, create=not args.dry_run)
+    dynamic_threshold = _dynamic_threshold(args, preset) if preset.method_type == "dynamic_cache" else None
     meta = {
+        "model_name": preset.model_name,
         "model": "JiT",
-        "method": preset_to_json_dict(preset),
+        "method_name": preset.method_name,
+        "method": _resolved_method_meta(args, preset),
         "num_images": args.num_images,
         "batch_size": args.batch_size,
         "seed": args.seed,
+        "eval_steps": preset.eval_steps,
+        "reference_steps": preset.reference_steps,
+        "cache_units": "jit_blocks" if preset.method_type == "dynamic_cache" else None,
+        "selected_modules": (preset.cache_preset or {}).get("cache_layers") if preset.cache_preset else None,
+        "dynamic_cache_type": preset.dynamic_cache_type,
+        "dynamic_cache_threshold": dynamic_threshold,
+        "resolved_dynamic_cache_threshold": dynamic_threshold,
+        "sea_beta": args.sea_beta if preset.method_type == "dynamic_cache" else None,
+        "sea_proxy_downsample": args.sea_proxy_downsample if preset.method_type == "dynamic_cache" else None,
         "save_png": args.save_png,
         "save_npz": args.save_npz,
         "resume": args.resume,
@@ -319,7 +352,8 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
         "noise_scale": args.noise_scale,
         "run_id": run_id,
         "dynamic_cache": {
-            "threshold": _dynamic_threshold(args, preset) if preset.method_type == "dynamic_cache" else None,
+            "threshold": dynamic_threshold,
+            "resolved_dynamic_cache_threshold": dynamic_threshold,
             "sea_beta": args.sea_beta,
             "sea_proxy_downsample": args.sea_proxy_downsample,
             "sea_min_t": args.sea_min_t,

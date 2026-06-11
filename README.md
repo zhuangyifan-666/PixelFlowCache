@@ -127,7 +127,7 @@ The codebase also includes independent adapted `teacache_style` and `seacache_st
 Print single-GPU threshold sweep commands:
 
 ```bash
-bash scripts/print_stage4a_seacache_baseline_commands.sh
+bash scripts/print_stage4a_seacache_theta006_commands.sh
 ```
 
-See [docs/BASELINE_SEACACHE_STYLE.md](docs/BASELINE_SEACACHE_STYLE.md) for the method details and suggested protocol.
+The final adapted SeaCache-style baseline target is `theta/delta = 0.06`. Numerical results should be added only after the theta=0.06 50k runs and FID/IS collection complete. See [docs/BASELINE_SEACACHE_STYLE.md](docs/BASELINE_SEACACHE_STYLE.md) for the method details and suggested protocol.

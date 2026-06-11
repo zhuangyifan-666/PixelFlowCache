@@ -7,8 +7,8 @@ from pfc.cache.fixed_interval_policy import FixedIntervalCachePolicy
 
 def test_outside_active_t_window_no_reuse() -> None:
     policy = FixedIntervalCachePolicy(interval=2, active_t_min=0.1, active_t_max=0.8)
-    assert not policy.should_reuse(1, 0.05, "blocks.0", "cond", "euler")
-    assert policy.should_refresh(1, 0.05, "blocks.0", "cond", "euler")
+    assert not policy.should_reuse(1, 0.06, "blocks.0", "cond", "euler")
+    assert policy.should_refresh(1, 0.06, "blocks.0", "cond", "euler")
     assert not policy.should_reuse(9, 0.8, "blocks.0", "cond", "euler")
 
 
@@ -43,7 +43,7 @@ def test_active_window_warmup_refreshes_delay_first_reuse() -> None:
         active_t_max=0.8,
         active_window_warmup_refreshes=1,
     )
-    assert policy.should_refresh(1, 0.05, "blocks.0", "cond", "euler")
+    assert policy.should_refresh(1, 0.06, "blocks.0", "cond", "euler")
     assert policy.should_refresh(2, 0.1, "blocks.0", "cond", "euler")
     assert policy.should_refresh(3, 0.15, "blocks.0", "cond", "euler")
     assert policy.should_refresh(4, 0.2, "blocks.0", "cond", "euler")

@@ -28,7 +28,7 @@ def test_raw_policy_reuses_below_threshold() -> None:
 
 
 def test_raw_policy_refreshes_above_threshold() -> None:
-    policy = RawAccumulatedDistancePolicy(threshold=0.05)
+    policy = RawAccumulatedDistancePolicy(threshold=0.06)
     policy.update(torch.ones(1, 1, 4, 4), step_idx=0, t=0.0)
     decision = policy.update(torch.ones(1, 1, 4, 4) * 2.0, step_idx=1, t=0.1)
     assert decision.should_refresh is True

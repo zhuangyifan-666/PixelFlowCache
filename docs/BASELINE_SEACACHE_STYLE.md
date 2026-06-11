@@ -46,7 +46,13 @@ The filter is normalized to a stable mean gain by default. Filtering is applied 
 Print single-GPU command plans without running inference:
 
 ```bash
-bash scripts/print_stage4a_seacache_baseline_commands.sh
+bash scripts/print_stage4a_seacache_theta006_commands.sh
+```
+
+The final adapted SeaCache-style baseline threshold is:
+
+```text
+theta / delta = 0.06
 ```
 
 Example JiT command:
@@ -54,11 +60,11 @@ Example JiT command:
 ```bash
 CUDA_VISIBLE_DEVICES=0 PFC_CUDA_DEVICES=0 conda run -n jit python scripts/run_jit_stage4a_generate.py \
   --method seacache_style \
-  --dynamic-cache-threshold 0.10 \
-  --num-images 1000 \
+  --dynamic-cache-threshold 0.06 \
+  --num-images 50000 \
   --batch-size 8 \
   --seed 0 \
-  --run-id stage4a_jit_seacache_n1000_delta0p10_seed0 \
+  --run-id stage4a_jit_seacache_theta0p06_n50000_seed0 \
   --save-png \
   --no-save-npz \
   --resume
@@ -69,11 +75,11 @@ Example DeCo command:
 ```bash
 CUDA_VISIBLE_DEVICES=0 PFC_CUDA_DEVICES=0 conda run -n deco python scripts/run_deco_stage4a_generate.py \
   --method seacache_style \
-  --dynamic-cache-threshold 0.10 \
-  --num-images 1000 \
+  --dynamic-cache-threshold 0.06 \
+  --num-images 50000 \
   --batch-size 4 \
   --seed 0 \
-  --run-id stage4a_deco_seacache_n1000_delta0p10_seed0 \
+  --run-id stage4a_deco_seacache_theta0p06_n50000_seed0 \
   --save-png \
   --no-save-npz \
   --resume
@@ -81,15 +87,16 @@ CUDA_VISIBLE_DEVICES=0 PFC_CUDA_DEVICES=0 conda run -n deco python scripts/run_d
 
 ## Suggested Protocol
 
-1. Run the 1000-image threshold sweep for TeaCache-style and SeaCache-style methods.
-2. Collect latency and optional proxy FID/IS.
-3. Choose thresholds that match or bracket BoundaryFlowCache speedups.
-4. Run 50k only for selected thresholds.
-5. Collect and plot results with the existing Stage 4A collection utilities.
+1. Print the theta=0.06 command plan with `bash scripts/print_stage4a_seacache_theta006_commands.sh`.
+2. Optionally run the 1000-image theta=0.06 command first to confirm runtime behavior.
+3. Run the 50k JiT and DeCo theta=0.06 commands manually.
+4. Compute FID/IS after generation completes.
+5. Collect and plot results into `logs/stage4a/summary/seacache_theta0p06_50k`.
 
 ## Warnings
 
 - Do not launch long inference from Codex.
 - Do not run FID from Codex.
 - This is an adapted baseline, not official SeaCache.
+- Exploratory theta values from earlier development are excluded from final results.
 - The final repository should not contain `baseline/SeaCache` source or submodule content.
