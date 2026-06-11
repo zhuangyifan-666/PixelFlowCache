@@ -8,6 +8,15 @@ Flow samplers move from noise toward image. Early and late portions of the traje
 
 The retained implementation uses a fixed cache interval and explicit method presets. It does not include adaptive calibration, token cache, branch cache, or solver-aware cache.
 
+## Adapted Dynamic Baselines
+
+For comparison, the final code also exposes:
+
+- `teacache_style`: raw relative L1 accumulated-distance scheduling on the current image/state proxy `x_t`.
+- `seacache_style`: the same accumulated-distance rule after applying a timestep-dependent SEA spectral filter to the `x_t` proxy.
+
+These baselines reuse the same cache units as BoundaryFlowCache but choose refresh/reuse dynamically per step. They are adapted baselines, not official SeaCache implementations.
+
 ## JiT
 
 JiT is treated as an x-pred pixel-space flow model. The final presets wrap JiT transformer blocks with whole-backbone BoundaryFlowCache:

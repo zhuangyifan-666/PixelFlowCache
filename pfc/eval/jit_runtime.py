@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import sys
 from argparse import Namespace
+from collections.abc import Callable
 from dataclasses import dataclass
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 import torch
 
 from pfc.cache.cache_state import RuntimeCacheState
+from pfc.cache.dynamic_proxy import maybe_downsample_proxy, proxy_from_image_state
+from pfc.cache.spectral_dynamic_policy import RawAccumulatedDistancePolicy, SeaCacheSpectralDistancePolicy
 from pfc.diagnostics.tensor_stats import l2_norm
 
 
@@ -37,6 +41,7 @@ class JiTRuntimeConfig:
     active_step_min: int | None = None
     active_step_max: int | None = None
     active_window_warmup_refreshes: int = 0
+    dynamic_proxy_downsample: int = 64
     warmup_runs: int = 0
     save_previews: bool = False
 
@@ -94,6 +99,8 @@ def sample_jit(
     config: JiTRuntimeConfig,
     mode: str,
     cache_state: RuntimeCacheState | None = None,
+    dynamic_policy: RawAccumulatedDistancePolicy | SeaCacheSpectralDistancePolicy | None = None,
+    dynamic_decision_writer: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[torch.Tensor, list[dict[str, Any]]]:
     outputs: list[torch.Tensor] = []
     records: list[dict[str, Any]] = []
@@ -106,6 +113,8 @@ def sample_jit(
         batch_labels = labels[batch_start:batch_end]
         if cache_state is not None:
             cache_state.clear_entries()
+        if dynamic_policy is not None:
+            dynamic_policy.clear_batch()
 
         for step_idx in range(config.steps):
             t_scalar = timesteps[step_idx]
@@ -118,11 +127,35 @@ def sample_jit(
             cfg_active = cfg_enabled(t_value, config.interval_min, config.interval_max)
             cfg_scale_interval = config.cfg if cfg_active else 1.0
 
+            if dynamic_policy is not None:
+                _update_dynamic_policy(
+                    dynamic_policy,
+                    z,
+                    step_idx,
+                    t_value,
+                    branch="cond" if dynamic_policy.per_branch else "global",
+                    max_size=config.dynamic_proxy_downsample,
+                    writer=dynamic_decision_writer,
+                    batch_start=batch_start,
+                    batch_end=batch_end,
+                )
             if cache_state is not None:
                 cache_state.set_context(step_idx, t_value, "cond", solver_stage="euler")
             x_cond = model.net(z, t.flatten(), batch_labels)
             v_cond = (x_cond - z) / (1.0 - t).clamp_min(model.t_eps)
 
+            if dynamic_policy is not None and dynamic_policy.per_branch:
+                _update_dynamic_policy(
+                    dynamic_policy,
+                    z,
+                    step_idx,
+                    t_value,
+                    branch="uncond",
+                    max_size=config.dynamic_proxy_downsample,
+                    writer=dynamic_decision_writer,
+                    batch_start=batch_start,
+                    batch_end=batch_end,
+                )
             if cache_state is not None:
                 cache_state.set_context(step_idx, t_value, "uncond", solver_stage="euler")
             null_labels = torch.full_like(batch_labels, model.num_classes)
@@ -148,3 +181,31 @@ def sample_jit(
             z = z + dt * v_cfg
         outputs.append(z.detach())
     return torch.cat(outputs, dim=0), records
+
+
+def _update_dynamic_policy(
+    dynamic_policy: RawAccumulatedDistancePolicy | SeaCacheSpectralDistancePolicy,
+    z: torch.Tensor,
+    step_idx: int,
+    t_value: float,
+    branch: str,
+    max_size: int,
+    writer: Callable[[dict[str, Any]], None] | None,
+    batch_start: int,
+    batch_end: int,
+) -> None:
+    proxy = maybe_downsample_proxy(proxy_from_image_state(z), max_size=max_size)
+    decision = dynamic_policy.update(proxy, step_idx=step_idx, t=t_value, branch=branch)
+    if writer is not None:
+        payload = asdict(decision)
+        payload.update(
+            {
+                "record_type": "dynamic_cache_decision",
+                "model_name": "JiT",
+                "batch_start": batch_start,
+                "batch_end": batch_end,
+                "policy": dynamic_policy.policy_name,
+                "proxy_shape": [int(dim) for dim in proxy.shape],
+            }
+        )
+        writer(payload)

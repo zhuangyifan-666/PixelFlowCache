@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import asdict
 from typing import Any
 
 import torch
 
 from pfc.cache.cache_state import RuntimeCacheState
+from pfc.cache.dynamic_proxy import maybe_downsample_proxy, proxy_from_image_state
+from pfc.cache.spectral_dynamic_policy import RawAccumulatedDistancePolicy, SeaCacheSpectralDistancePolicy
 from pfc.diagnostics.frequency import fft_frequency_bands, frequency_delta_bands
 from pfc.diagnostics.tensor_stats import summarize_tensor
 
@@ -21,6 +25,9 @@ class CachedDeCoEulerSampler(EulerSampler):
         velocity_writer: Any | None = None,
         frequency_writer: Any | None = None,
         step_writer: Any | None = None,
+        dynamic_policy: RawAccumulatedDistancePolicy | SeaCacheSpectralDistancePolicy | None = None,
+        dynamic_decision_writer: Callable[[dict[str, Any]], None] | None = None,
+        dynamic_proxy_downsample: int = 64,
         log_diagnostics: bool = True,
         *args: Any,
         **kwargs: Any,
@@ -30,6 +37,9 @@ class CachedDeCoEulerSampler(EulerSampler):
         self.velocity_writer = velocity_writer
         self.frequency_writer = frequency_writer
         self.step_writer = step_writer
+        self.dynamic_policy = dynamic_policy
+        self.dynamic_decision_writer = dynamic_decision_writer
+        self.dynamic_proxy_downsample = int(dynamic_proxy_downsample)
         self.log_diagnostics = log_diagnostics
 
     def _impl_sampling(self, net: torch.nn.Module, noise: torch.Tensor, condition: Any, uncondition: Any):
@@ -42,6 +52,8 @@ class CachedDeCoEulerSampler(EulerSampler):
         prev_v: torch.Tensor | None = None
         if self.cache_state is not None:
             self.cache_state.clear_entries()
+        if self.dynamic_policy is not None:
+            self.dynamic_policy.clear_batch()
 
         for i, (t_cur_scalar, t_next_scalar) in enumerate(zip(steps[:-1], steps[1:])):
             dt = t_next_scalar - t_cur_scalar
@@ -59,6 +71,8 @@ class CachedDeCoEulerSampler(EulerSampler):
             cfg_enabled = bool(t_cur[0] > self.guidance_interval_min and t_cur[0] <= self.guidance_interval_max)
             guidance = self.guidance if cfg_enabled else 1.0
 
+            if self.dynamic_policy is not None:
+                self._update_dynamic_policy(x, i, t_value)
             if self.cache_state is not None:
                 self.cache_state.set_context(i, t_value, "cfg_cat", solver_stage="euler")
             out_raw = net(cfg_x, cfg_t, cfg_condition)
@@ -80,6 +94,23 @@ class CachedDeCoEulerSampler(EulerSampler):
             v_trajs.append(v)
         v_trajs.append(torch.zeros_like(x))
         return x_trajs, v_trajs
+
+    def _update_dynamic_policy(self, x: torch.Tensor, step_idx: int, t_value: float) -> None:
+        if self.dynamic_policy is None:
+            return
+        proxy = maybe_downsample_proxy(proxy_from_image_state(x), max_size=self.dynamic_proxy_downsample)
+        decision = self.dynamic_policy.update(proxy, step_idx=step_idx, t=t_value, branch="cfg_cat")
+        if self.dynamic_decision_writer is not None:
+            payload = asdict(decision)
+            payload.update(
+                {
+                    "record_type": "dynamic_cache_decision",
+                    "model_name": "DeCo",
+                    "policy": self.dynamic_policy.policy_name,
+                    "proxy_shape": [int(dim) for dim in proxy.shape],
+                }
+            )
+            self.dynamic_decision_writer(payload)
 
     def _write_velocity_records(
         self,

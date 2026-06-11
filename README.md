@@ -119,3 +119,15 @@ conda run -n jit python scripts/plot_stage4a_full_eval.py \
 - Token cache, adaptive online policy, solver-aware cache, calibration, or frequency-aware cache
 
 See [docs/METHOD.md](docs/METHOD.md), [docs/SETUP.md](docs/SETUP.md), and [docs/INFERENCE_AND_FID.md](docs/INFERENCE_AND_FID.md) for details.
+
+## Adapted SeaCache-Style Baseline
+
+The codebase also includes independent adapted `teacache_style` and `seacache_style` dynamic-cache baselines for JiT and DeCo. These use the current image/state `x_t` as a low-overhead proxy and reuse BoundaryFlowCache cache units for fair comparison. They are not official SeaCache results.
+
+Print single-GPU threshold sweep commands:
+
+```bash
+bash scripts/print_stage4a_seacache_baseline_commands.sh
+```
+
+See [docs/BASELINE_SEACACHE_STYLE.md](docs/BASELINE_SEACACHE_STYLE.md) for the method details and suggested protocol.

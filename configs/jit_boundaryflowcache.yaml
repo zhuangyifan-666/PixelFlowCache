@@ -37,3 +37,18 @@ methods:
   reduced_steps_30:
     type: reduced_steps
     steps: 30
+  teacache_style:
+    type: dynamic_cache
+    steps: 50
+    cache_layers: all
+    default_threshold: 0.10
+    proxy: x_t
+    proxy_downsample: 64
+  seacache_style:
+    type: dynamic_cache
+    steps: 50
+    cache_layers: all
+    default_threshold: 0.10
+    sea_beta: 2.0
+    proxy: x_t
+    proxy_downsample: 64
