@@ -8,6 +8,16 @@ Flow samplers move from noise toward image. Early and late portions of the traje
 
 The retained implementation uses a fixed cache interval and explicit method presets. It does not include adaptive calibration, token cache, branch cache, or solver-aware cache.
 
+## PixBFC Interface
+
+The implementation now exposes the method as PixBFC: a generic interface for pixel-space diffusion and flow models. The core code separates three concerns:
+
+- `PixelDiffusionModelAdapter`: model-specific prediction type, boundary candidates, and wrapper installation.
+- `BoundarySpec` / `BoundarySet`: named cacheable boundaries such as whole backbone, decoder, or final output.
+- `CacheScheduler`: model-independent refresh/reuse scheduling.
+
+JiT and DeCo are the first two adapters. A future pixel-space model should add an adapter rather than changing the cache state or `CachedModule` mechanics. See [PIXBFC_GENERALIZATION.md](PIXBFC_GENERALIZATION.md).
+
 ## Adapted Dynamic Baselines
 
 For comparison, the final code also exposes:

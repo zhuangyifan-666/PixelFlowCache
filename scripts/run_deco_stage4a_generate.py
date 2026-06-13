@@ -23,6 +23,7 @@ from pfc.eval.generation_io import (  # noqa: E402
     save_npz_samples,
     write_generation_meta,
 )
+from pfc.adapters import DeCoBoundaryAdapter  # noqa: E402
 from pfc.eval.label_schedule import make_imagenet_class_balanced_labels, save_label_schedule  # noqa: E402
 from pfc.eval.method_presets import get_deco_stage4a_methods, preset_to_json_dict  # noqa: E402
 
@@ -74,6 +75,24 @@ def _resolved_method_meta(args: argparse.Namespace, preset: Any) -> dict[str, An
     return method
 
 
+def _pixbfc_static_meta(method_type: str, preset_name: str) -> dict[str, Any]:
+    adapter = DeCoBoundaryAdapter()
+    boundary_set = None
+    if method_type in {"cache", "dynamic_cache"}:
+        boundary_name = "deco_backbone_plus_final" if preset_name == "bfc_backbone_plus_final_t02_10" else "deco_all_candidates"
+        boundary_set = {
+            "name": boundary_name,
+            "description": "Resolved to concrete DeCo module names after model construction.",
+            "module_names": "deco_cache_candidates",
+        }
+    return {
+        "pixbfc_adapter": adapter.describe(),
+        "prediction_type": adapter.prediction_type.value,
+        "output_to_velocity": "identity",
+        "boundary_set": boundary_set,
+    }
+
+
 def _dynamic_writer(path: Path | None):
     if path is None:
         return None, None
@@ -102,13 +121,11 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     import torch
 
     from pfc.cache.cache_state import RuntimeCacheState
-    from pfc.cache.deco_wrap import parse_deco_cache_spec, wrap_deco_modules
     from pfc.cache.dynamic_policy_adapter import DynamicPolicyAdapter
     from pfc.cache.spectral_dynamic_policy import RawAccumulatedDistancePolicy, SeaCacheSpectralDistancePolicy
     from pfc.eval.deco_runtime import (
         DeCoRuntimeConfig,
         build_deco_sampler,
-        candidate_names,
         load_deco_denoiser,
         policy_for_modules,
     )
@@ -143,16 +160,20 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         dynamic_proxy_downsample=args.sea_proxy_downsample,
     )
     denoiser = load_deco_denoiser(config, device)
+    boundary_adapter = DeCoBoundaryAdapter()
     cache_state: RuntimeCacheState | None = None
     dynamic_policy: RawAccumulatedDistancePolicy | SeaCacheSpectralDistancePolicy | None = None
     if preset.method_type == "cache":
-        names = candidate_names(denoiser)
-        selected_modules = parse_deco_cache_spec(config.cache_units, names)
+        boundary_set = boundary_adapter.default_boundary_set(denoiser, args.method)
+        selected_modules = list(boundary_set.module_names())
         cache_state = RuntimeCacheState(model_name="DeCo", enabled=bool(selected_modules))
-        wrap_deco_modules(denoiser, cache_state, policy_for_modules(config, selected_modules), selected_modules)
+        boundary_adapter.wrap_boundary_set(denoiser, boundary_set, cache_state, policy_for_modules(config, selected_modules))
+        resolved["meta"]["selected_modules"] = selected_modules
+        resolved["meta"]["cache_units"] = config.cache_units
+        resolved["meta"]["boundary_set"] = boundary_set.to_dict()
     elif preset.method_type == "dynamic_cache":
-        names = candidate_names(denoiser)
-        selected_modules = parse_deco_cache_spec(config.cache_units, names)
+        boundary_set = boundary_adapter.default_boundary_set(denoiser, args.method)
+        selected_modules = list(boundary_set.module_names())
         threshold = _dynamic_threshold(args, preset)
         policy_kwargs = {
             "threshold": threshold,
@@ -178,7 +199,8 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         )
         resolved["meta"]["selected_modules"] = selected_modules
         resolved["meta"]["cache_units"] = config.cache_units
-        wrap_deco_modules(denoiser, cache_state, adapter, selected_modules)
+        resolved["meta"]["boundary_set"] = boundary_set.to_dict()
+        boundary_adapter.wrap_boundary_set(denoiser, boundary_set, cache_state, adapter)
     debug_handle, dynamic_decision_writer = _dynamic_writer(args.dynamic_cache_debug_jsonl)
     sampler = build_deco_sampler(
         config,
@@ -329,6 +351,7 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
             "dynamic_force_first_n_steps": args.dynamic_force_first_n_steps,
             "dynamic_cache_debug_jsonl": str(args.dynamic_cache_debug_jsonl.resolve()) if args.dynamic_cache_debug_jsonl else None,
         },
+        **_pixbfc_static_meta(preset.method_type, preset.method_name),
     }
     return {"meta": meta, "paths": paths}
 

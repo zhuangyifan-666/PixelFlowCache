@@ -1,0 +1,59 @@
+model:
+  family: JiT
+  name: JiT-B/16 ImageNet-256
+  adapter: jit
+  prediction_type: xpred
+  time_direction: noise_to_image
+  image_size: 256
+
+paths:
+  repo: third_party/JiT
+  checkpoint_dir: ckpts/JiT/JiT-B-16-256
+  checkpoint_file: checkpoint-last.pth
+
+pixbfc:
+  default_boundary_set: jit_whole_backbone
+  boundaries:
+    whole_backbone:
+      role: backbone
+      granularity: whole_backbone
+      module_pattern: blocks.*
+      output_to_velocity: xpred_to_velocity
+
+generation:
+  reference_steps: 50
+  default_batch_size: 8
+  cfg_scale: 3.0
+  noise_scale: 1.0
+
+methods:
+  no_cache_50:
+    type: reference
+    steps: 50
+  bfc_quality_t02_08:
+    type: boundary_flow_cache
+    boundary_set: jit_whole_backbone
+    cache_interval: 2
+    active_t: [0.2, 0.8]
+  bfc_speed_t02_10:
+    type: boundary_flow_cache
+    boundary_set: jit_whole_backbone
+    cache_interval: 2
+    active_t: [0.2, 1.0]
+  reduced_steps_35:
+    type: reduced_steps
+    steps: 35
+  reduced_steps_30:
+    type: reduced_steps
+    steps: 30
+  teacache_style:
+    type: dynamic_cache
+    boundary_set: jit_whole_backbone
+    default_threshold: 0.10
+    proxy: x_t
+  seacache_style:
+    type: dynamic_cache
+    boundary_set: jit_whole_backbone
+    default_threshold: 0.06
+    sea_beta: 2.0
+    proxy: x_t

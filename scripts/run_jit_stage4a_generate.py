@@ -23,6 +23,7 @@ from pfc.eval.generation_io import (  # noqa: E402
     save_npz_samples,
     write_generation_meta,
 )
+from pfc.adapters import JiTBoundaryAdapter  # noqa: E402
 from pfc.eval.label_schedule import make_imagenet_class_balanced_labels, save_label_schedule  # noqa: E402
 from pfc.eval.method_presets import get_jit_stage4a_methods, preset_to_json_dict  # noqa: E402
 
@@ -78,6 +79,23 @@ def _resolved_method_meta(args: argparse.Namespace, preset: Any) -> dict[str, An
     return method
 
 
+def _pixbfc_static_meta(method_type: str) -> dict[str, Any]:
+    adapter = JiTBoundaryAdapter()
+    boundary_set = None
+    if method_type in {"cache", "dynamic_cache"}:
+        boundary_set = {
+            "name": "jit_whole_backbone",
+            "description": "Resolved to concrete JiT block names after model construction.",
+            "module_names": "all_blocks",
+        }
+    return {
+        "pixbfc_adapter": adapter.describe(),
+        "prediction_type": adapter.prediction_type.value,
+        "output_to_velocity": "xpred_to_velocity",
+        "boundary_set": boundary_set,
+    }
+
+
 def _dynamic_writer(path: Path | None):
     if path is None:
         return None, None
@@ -118,7 +136,6 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     from pfc.cache.dynamic_policy_adapter import DynamicPolicyAdapter
     from pfc.cache.fixed_interval_policy import FixedIntervalCachePolicy
     from pfc.cache.spectral_dynamic_policy import RawAccumulatedDistancePolicy, SeaCacheSpectralDistancePolicy
-    from pfc.cache.wrap import parse_layer_list, wrap_jit_blocks
 
     JiTRuntimeConfig, load_jit_model, sample_jit = load_jit_runtime_helpers()
 
@@ -157,12 +174,12 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         save_previews=False,
     )
     model = load_jit_model(config, device)
+    boundary_adapter = JiTBoundaryAdapter()
     cache_state: RuntimeCacheState | None = None
     dynamic_policy: RawAccumulatedDistancePolicy | SeaCacheSpectralDistancePolicy | None = None
     if preset.method_type == "cache":
-        num_blocks = len(model.net.blocks)
-        selected_layer_ids = parse_layer_list(config.cache_layers, num_blocks)
-        selected_modules = [f"blocks.{idx}" for idx in selected_layer_ids]
+        boundary_set = boundary_adapter.default_boundary_set(model, args.method)
+        selected_modules = list(boundary_set.module_names())
         cache_state = RuntimeCacheState(model_name="JiT", enabled=True)
         policy = FixedIntervalCachePolicy.from_branches(
             {"cond", "uncond"},
@@ -173,11 +190,13 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
             active_t_max=config.active_t_max,
             active_window_warmup_refreshes=config.active_window_warmup_refreshes,
         )
-        wrap_jit_blocks(model, cache_state, policy, selected_layer_ids)
+        boundary_adapter.wrap_boundary_set(model, boundary_set, cache_state, policy)
+        resolved["meta"]["selected_modules"] = selected_modules
+        resolved["meta"]["cache_units"] = "jit_blocks"
+        resolved["meta"]["boundary_set"] = boundary_set.to_dict()
     elif preset.method_type == "dynamic_cache":
-        num_blocks = len(model.net.blocks)
-        selected_layer_ids = parse_layer_list((preset.cache_preset or {}).get("cache_layers", "all"), num_blocks)
-        selected_modules = [f"blocks.{idx}" for idx in selected_layer_ids]
+        boundary_set = boundary_adapter.default_boundary_set(model, args.method)
+        selected_modules = list(boundary_set.module_names())
         threshold = _dynamic_threshold(args, preset)
         policy_kwargs = {
             "threshold": threshold,
@@ -204,7 +223,8 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         )
         resolved["meta"]["selected_modules"] = selected_modules
         resolved["meta"]["cache_units"] = "jit_blocks"
-        wrap_jit_blocks(model, cache_state, adapter, selected_layer_ids)
+        resolved["meta"]["boundary_set"] = boundary_set.to_dict()
+        boundary_adapter.wrap_boundary_set(model, boundary_set, cache_state, adapter)
 
     samples_for_npz = []
     labels_for_npz: list[int] = []
@@ -362,6 +382,7 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
             "dynamic_per_branch": args.dynamic_per_branch,
             "dynamic_cache_debug_jsonl": str(args.dynamic_cache_debug_jsonl.resolve()) if args.dynamic_cache_debug_jsonl else None,
         },
+        **_pixbfc_static_meta(preset.method_type),
     }
     return {"meta": meta, "paths": paths}
 
