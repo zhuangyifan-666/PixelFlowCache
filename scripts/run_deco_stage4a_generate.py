@@ -23,6 +23,7 @@ from pfc.eval.generation_io import (  # noqa: E402
     save_npz_samples,
     write_generation_meta,
 )
+from pfc.adapters import DeCoBoundaryAdapter  # noqa: E402
 from pfc.eval.label_schedule import make_imagenet_class_balanced_labels, save_label_schedule  # noqa: E402
 from pfc.eval.method_presets import get_deco_stage4a_methods, preset_to_json_dict  # noqa: E402
 
@@ -48,6 +49,63 @@ def _json_ready(payload: dict[str, Any]) -> dict[str, Any]:
     return output
 
 
+def _dynamic_threshold(args: argparse.Namespace, preset: Any) -> float:
+    value = args.dynamic_cache_threshold
+    if value is None:
+        value = preset.dynamic_cache_threshold
+    if value is None:
+        value = 0.06
+    return float(value)
+
+
+def _resolved_method_meta(args: argparse.Namespace, preset: Any) -> dict[str, Any]:
+    method = preset_to_json_dict(preset)
+    if preset.method_type == "dynamic_cache":
+        threshold = _dynamic_threshold(args, preset)
+        method.update(
+            {
+                "dynamic_cache_threshold": threshold,
+                "resolved_dynamic_cache_threshold": threshold,
+                "sea_beta": args.sea_beta,
+                "sea_proxy_downsample": args.sea_proxy_downsample,
+                "cache_units": preset.deco_cache_units or "all_candidates",
+                "selected_modules": preset.deco_cache_units or "all_candidates",
+            }
+        )
+    return method
+
+
+def _pixbfc_static_meta(method_type: str, preset_name: str) -> dict[str, Any]:
+    adapter = DeCoBoundaryAdapter()
+    boundary_set = None
+    if method_type in {"cache", "dynamic_cache"}:
+        boundary_name = "deco_backbone_plus_final" if preset_name == "bfc_backbone_plus_final_t02_10" else "deco_all_candidates"
+        boundary_set = {
+            "name": boundary_name,
+            "description": "Resolved to concrete DeCo module names after model construction.",
+            "module_names": "deco_cache_candidates",
+        }
+    return {
+        "pixbfc_adapter": adapter.describe(),
+        "prediction_type": adapter.prediction_type.value,
+        "output_to_velocity": "identity",
+        "boundary_set": boundary_set,
+    }
+
+
+def _dynamic_writer(path: Path | None):
+    if path is None:
+        return None, None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a", encoding="utf-8")
+
+    def write(payload: dict[str, Any]) -> None:
+        handle.write(json.dumps(_json_ready(payload), sort_keys=True) + "\n")
+        handle.flush()
+
+    return handle, write
+
+
 def _make_noise_for_indices(indices: list[int], seed: int, resolution: int, device: Any) -> Any:
     import torch
 
@@ -63,11 +121,11 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     import torch
 
     from pfc.cache.cache_state import RuntimeCacheState
-    from pfc.cache.deco_wrap import parse_deco_cache_spec, wrap_deco_modules
+    from pfc.cache.dynamic_policy_adapter import DynamicPolicyAdapter
+    from pfc.cache.spectral_dynamic_policy import RawAccumulatedDistancePolicy, SeaCacheSpectralDistancePolicy
     from pfc.eval.deco_runtime import (
         DeCoRuntimeConfig,
         build_deco_sampler,
-        candidate_names,
         load_deco_denoiser,
         policy_for_modules,
     )
@@ -99,15 +157,58 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         active_t_max=preset.active_t_max,
         cache_units=preset.deco_cache_units or "none",
         resolution=args.resolution,
+        dynamic_proxy_downsample=args.sea_proxy_downsample,
     )
     denoiser = load_deco_denoiser(config, device)
+    boundary_adapter = DeCoBoundaryAdapter()
     cache_state: RuntimeCacheState | None = None
+    dynamic_policy: RawAccumulatedDistancePolicy | SeaCacheSpectralDistancePolicy | None = None
     if preset.method_type == "cache":
-        names = candidate_names(denoiser)
-        selected_modules = parse_deco_cache_spec(config.cache_units, names)
+        boundary_set = boundary_adapter.default_boundary_set(denoiser, args.method)
+        selected_modules = list(boundary_set.module_names())
         cache_state = RuntimeCacheState(model_name="DeCo", enabled=bool(selected_modules))
-        wrap_deco_modules(denoiser, cache_state, policy_for_modules(config, selected_modules), selected_modules)
-    sampler = build_deco_sampler(config, cache_state=cache_state, log_diagnostics=False)
+        boundary_adapter.wrap_boundary_set(denoiser, boundary_set, cache_state, policy_for_modules(config, selected_modules))
+        resolved["meta"]["selected_modules"] = selected_modules
+        resolved["meta"]["cache_units"] = config.cache_units
+        resolved["meta"]["boundary_set"] = boundary_set.to_dict()
+    elif preset.method_type == "dynamic_cache":
+        boundary_set = boundary_adapter.default_boundary_set(denoiser, args.method)
+        selected_modules = list(boundary_set.module_names())
+        threshold = _dynamic_threshold(args, preset)
+        policy_kwargs = {
+            "threshold": threshold,
+            "force_first_n_steps": args.dynamic_force_first_n_steps,
+            "min_t": args.sea_min_t,
+            "max_t": args.sea_max_t,
+            "per_branch": False,
+        }
+        if preset.dynamic_cache_type == "sea":
+            dynamic_policy = SeaCacheSpectralDistancePolicy(
+                beta=args.sea_beta,
+                normalize_filter=True,
+                time_direction="noise_to_image",
+                **policy_kwargs,
+            )
+        else:
+            dynamic_policy = RawAccumulatedDistancePolicy(**policy_kwargs)
+        cache_state = RuntimeCacheState(model_name="DeCo", enabled=bool(selected_modules))
+        adapter = DynamicPolicyAdapter(
+            dynamic_policy=dynamic_policy,
+            cache_modules=set(selected_modules),
+            solver_stages={"euler"},
+        )
+        resolved["meta"]["selected_modules"] = selected_modules
+        resolved["meta"]["cache_units"] = config.cache_units
+        resolved["meta"]["boundary_set"] = boundary_set.to_dict()
+        boundary_adapter.wrap_boundary_set(denoiser, boundary_set, cache_state, adapter)
+    debug_handle, dynamic_decision_writer = _dynamic_writer(args.dynamic_cache_debug_jsonl)
+    sampler = build_deco_sampler(
+        config,
+        cache_state=cache_state,
+        dynamic_policy=dynamic_policy,
+        dynamic_decision_writer=dynamic_decision_writer,
+        log_diagnostics=False,
+    )
     samples_for_npz = []
     labels_for_npz: list[int] = []
     generated = 0
@@ -116,32 +217,36 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats(device)
         torch.cuda.synchronize(device)
-    for batch_start in range(0, args.num_images, args.batch_size):
-        batch_end = min(batch_start + args.batch_size, args.num_images)
-        indices = list(range(batch_start, batch_end))
-        if args.resume and args.save_png:
-            existing = [paths["image_dir"] / f"{index:06d}.png" for index in indices]
-            if all(path.exists() for path in existing):
-                continue
-        batch_labels_list = labels[batch_start:batch_end]
-        batch_labels = torch.tensor(batch_labels_list, device=device, dtype=torch.long)
-        batch_uncondition = torch.full_like(batch_labels, 1000)
-        batch_noise = _make_noise_for_indices(indices, args.seed, args.resolution, device)
-        batch_config = replace(config, num_samples=len(indices), batch_size=len(indices))
-        sampler.num_steps = batch_config.steps
-        if cache_state is not None:
-            cache_state.clear_entries()
-        with torch.no_grad():
-            output = sampler(denoiser, batch_noise, batch_labels, batch_uncondition).detach().cpu()
-        if args.save_png:
-            records = save_image_batch_png(output, batch_labels_list, batch_start, paths["image_dir"])
-        else:
-            records = [{"index": index, "label": int(label)} for index, label in zip(indices, batch_labels_list)]
-        append_generation_manifest(paths["manifest"], records)
-        if args.save_npz:
-            samples_for_npz.append(output)
-            labels_for_npz.extend(batch_labels_list)
-        generated += len(indices)
+    try:
+        for batch_start in range(0, args.num_images, args.batch_size):
+            batch_end = min(batch_start + args.batch_size, args.num_images)
+            indices = list(range(batch_start, batch_end))
+            if args.resume and args.save_png:
+                existing = [paths["image_dir"] / f"{index:06d}.png" for index in indices]
+                if all(path.exists() for path in existing):
+                    continue
+            batch_labels_list = labels[batch_start:batch_end]
+            batch_labels = torch.tensor(batch_labels_list, device=device, dtype=torch.long)
+            batch_uncondition = torch.full_like(batch_labels, 1000)
+            batch_noise = _make_noise_for_indices(indices, args.seed, args.resolution, device)
+            batch_config = replace(config, num_samples=len(indices), batch_size=len(indices))
+            sampler.num_steps = batch_config.steps
+            if cache_state is not None:
+                cache_state.clear_entries()
+            with torch.no_grad():
+                output = sampler(denoiser, batch_noise, batch_labels, batch_uncondition).detach().cpu()
+            if args.save_png:
+                records = save_image_batch_png(output, batch_labels_list, batch_start, paths["image_dir"])
+            else:
+                records = [{"index": index, "label": int(label)} for index, label in zip(indices, batch_labels_list)]
+            append_generation_manifest(paths["manifest"], records)
+            if args.save_npz:
+                samples_for_npz.append(output)
+                labels_for_npz.extend(batch_labels_list)
+            generated += len(indices)
+    finally:
+        if debug_handle is not None:
+            debug_handle.close()
     if device.type == "cuda":
         torch.cuda.synchronize(device)
         peak_memory = int(torch.cuda.max_memory_allocated(device))
@@ -151,6 +256,11 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     if args.save_npz:
         save_npz_samples(torch.cat(samples_for_npz, dim=0), labels_for_npz, paths["samples_npz"])
     cache_stats = cache_state.summary() if cache_state is not None else {"enabled": False, "hit_rate": 0.0}
+    if dynamic_policy is not None:
+        cache_stats["dynamic_cache"] = dynamic_policy.summary()
+        cache_stats["dynamic_cache_threshold"] = dynamic_policy.threshold
+        cache_stats["resolved_dynamic_cache_threshold"] = dynamic_policy.threshold
+        resolved["meta"]["dynamic_cache_summary"] = dynamic_policy.summary()
     write_generation_meta(paths["latency"], {
         "latency_sec": latency,
         "images_per_sec": generated / latency if latency > 0 else float("inf"),
@@ -186,6 +296,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cfg-interval-min", type=float, default=0.1)
     parser.add_argument("--cfg-interval-max", type=float, default=1.0)
     parser.add_argument("--resolution", type=int, default=256)
+    parser.add_argument("--dynamic-cache-threshold", type=float)
+    parser.add_argument("--sea-beta", type=float, default=2.0)
+    parser.add_argument("--sea-proxy-downsample", type=int, default=64)
+    parser.add_argument("--sea-min-t", type=float)
+    parser.add_argument("--sea-max-t", type=float)
+    parser.add_argument("--dynamic-force-first-n-steps", type=int, default=0)
+    parser.add_argument("--dynamic-cache-debug-jsonl", type=Path)
     return parser
 
 
@@ -194,12 +311,24 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
     run_id = args.run_id or _default_run_id(args.seed, args.num_images)
     args.run_id = run_id
     paths = prepare_generation_dir(args.output_root, preset.model_name, args.method, run_id, create=not args.dry_run)
+    dynamic_threshold = _dynamic_threshold(args, preset) if preset.method_type == "dynamic_cache" else None
     meta = {
+        "model_name": preset.model_name,
         "model": "DeCo",
-        "method": preset_to_json_dict(preset),
+        "method_name": preset.method_name,
+        "method": _resolved_method_meta(args, preset),
         "num_images": args.num_images,
         "batch_size": args.batch_size,
         "seed": args.seed,
+        "eval_steps": preset.eval_steps,
+        "reference_steps": preset.reference_steps,
+        "cache_units": preset.deco_cache_units if preset.method_type == "dynamic_cache" else None,
+        "selected_modules": preset.deco_cache_units if preset.method_type == "dynamic_cache" else None,
+        "dynamic_cache_type": preset.dynamic_cache_type,
+        "dynamic_cache_threshold": dynamic_threshold,
+        "resolved_dynamic_cache_threshold": dynamic_threshold,
+        "sea_beta": args.sea_beta if preset.method_type == "dynamic_cache" else None,
+        "sea_proxy_downsample": args.sea_proxy_downsample if preset.method_type == "dynamic_cache" else None,
         "save_png": args.save_png,
         "save_npz": args.save_npz,
         "resume": args.resume,
@@ -212,6 +341,17 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
         "cfg": args.cfg,
         "resolution": args.resolution,
         "run_id": run_id,
+        "dynamic_cache": {
+            "threshold": dynamic_threshold,
+            "resolved_dynamic_cache_threshold": dynamic_threshold,
+            "sea_beta": args.sea_beta,
+            "sea_proxy_downsample": args.sea_proxy_downsample,
+            "sea_min_t": args.sea_min_t,
+            "sea_max_t": args.sea_max_t,
+            "dynamic_force_first_n_steps": args.dynamic_force_first_n_steps,
+            "dynamic_cache_debug_jsonl": str(args.dynamic_cache_debug_jsonl.resolve()) if args.dynamic_cache_debug_jsonl else None,
+        },
+        **_pixbfc_static_meta(preset.method_type, preset.method_name),
     }
     return {"meta": meta, "paths": paths}
 
@@ -223,6 +363,10 @@ def main() -> int:
         parser.error("--num-images must be positive")
     if args.batch_size <= 0:
         parser.error("--batch-size must be positive")
+    if args.dynamic_force_first_n_steps < 0:
+        parser.error("--dynamic-force-first-n-steps must be non-negative")
+    if args.sea_proxy_downsample < 0:
+        parser.error("--sea-proxy-downsample must be non-negative")
     os.environ.setdefault("CUDA_VISIBLE_DEVICES", os.environ.get("PFC_CUDA_DEVICES", "0"))
     resolved = resolve_config(args)
     if args.dry_run:

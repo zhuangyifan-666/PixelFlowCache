@@ -18,3 +18,7 @@ The table below summarizes the clean 50k ImageNet-256 generation runs collected 
 The DeCo `reduced_steps_35` timing is anomalous relative to the no-cache reference and the 30-step baseline. Keep it as a reported observation, not as the primary speed comparison.
 
 For regenerated summaries, use `scripts/collect_stage4a_fid_results.py` with both `--run-id` and `--num-images` so 100-image command checks cannot mix with 50k rows.
+
+## SeaCache-Style Baseline
+
+The final adapted SeaCache-style baseline threshold is `theta/delta = 0.06`. The 50k JiT and DeCo rows are pending until those runs and FID/IS evaluation are completed and collected.

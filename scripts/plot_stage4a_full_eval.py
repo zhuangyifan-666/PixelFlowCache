@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -31,8 +32,23 @@ def _float(row: dict[str, Any], key: str) -> float | None:
         return None
 
 
+def _theta_from_run_id(run_id: str) -> str | None:
+    match = re.search(r"theta(\d+)p(\d+)", run_id)
+    if not match:
+        return None
+    return f"{int(match.group(1))}.{match.group(2)}"
+
+
 def _label(row: dict[str, Any]) -> str:
-    return f"{row.get('model')}:{row.get('method')}"
+    model = str(row.get("model") or "")
+    method = str(row.get("method") or "")
+    run_id = str(row.get("run_id") or "")
+    theta = _theta_from_run_id(run_id)
+    if method == "seacache_style" and theta:
+        return f"{model} SeaCache-style θ={theta}"
+    if method == "teacache_style" and theta:
+        return f"{model} TeaCache-style θ={theta}"
+    return f"{model}:{method}"
 
 
 def _int_value(row: dict[str, Any], key: str) -> int | None:

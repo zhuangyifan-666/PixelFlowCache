@@ -1,0 +1,75 @@
+model:
+  family: DeCo
+  name: DeCo ImageNet-256
+  adapter: deco
+  prediction_type: vpred
+  time_direction: noise_to_image
+  image_size: 256
+
+paths:
+  repo: third_party/DeCo
+  config: third_party/DeCo/configs_c2i/DeCo_XL.yaml
+  checkpoint: ckpts/DeCo/imagenet256_epoch800/imagenet256_epoch800.ckpt
+
+pixbfc:
+  default_boundary_set: deco_all_candidates
+  boundaries:
+    backbone_blocks:
+      role: backbone
+      granularity: module_group
+      module_pattern: blocks.*
+    decoder_blocks:
+      role: decoder
+      granularity: module_group
+      module_pattern: dec_net.res_blocks.*
+    final_output:
+      role: final_output
+      granularity: output_boundary
+      module_pattern: final_layer
+    backbone_plus_final:
+      role: custom
+      granularity: module_group
+      members: [backbone_blocks, final_output]
+    all_candidates:
+      role: custom
+      granularity: module_group
+      members: [backbone_blocks, decoder_blocks, final_output]
+
+generation:
+  reference_steps: 50
+  default_batch_size: 4
+  cfg_scale: 3.2
+  cfg_interval: [0.1, 1.0]
+
+methods:
+  no_cache_50:
+    type: reference
+    steps: 50
+  bfc_all_candidates_t02_10:
+    type: boundary_flow_cache
+    boundary_set: deco_all_candidates
+    cache_interval: 2
+    active_t: [0.2, 1.0]
+  bfc_backbone_plus_final_t02_10:
+    type: boundary_flow_cache
+    boundary_set: deco_backbone_plus_final
+    cache_interval: 2
+    active_t: [0.2, 1.0]
+  reduced_steps_35:
+    type: reduced_steps
+    steps: 35
+    note: Timing anomaly observed in the 50k run; not used as the main speed baseline.
+  reduced_steps_30:
+    type: reduced_steps
+    steps: 30
+  teacache_style:
+    type: dynamic_cache
+    boundary_set: deco_all_candidates
+    default_threshold: 0.10
+    proxy: x_t
+  seacache_style:
+    type: dynamic_cache
+    boundary_set: deco_all_candidates
+    default_threshold: 0.06
+    sea_beta: 2.0
+    proxy: x_t

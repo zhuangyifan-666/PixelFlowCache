@@ -11,6 +11,7 @@ import torch
 from pfc.cache.cache_state import RuntimeCacheState
 from pfc.cache.deco_wrap import deco_cache_unit_category, is_safe_deco_cache_unit
 from pfc.cache.fixed_interval_policy import FixedIntervalCachePolicy
+from pfc.cache.spectral_dynamic_policy import RawAccumulatedDistancePolicy, SeaCacheSpectralDistancePolicy
 
 
 DECO_DEFAULT_MODEL_ARGS = {
@@ -45,6 +46,7 @@ class DeCoRuntimeConfig:
     active_t_max: float | None = 1.0
     cache_units: str = "backbone_blocks"
     resolution: int = 256
+    dynamic_proxy_downsample: int = 64
 
 
 def setup_deco_pythonpath(deco_dir: Path) -> None:
@@ -104,6 +106,8 @@ def build_deco_sampler(
     velocity_writer: Any | None = None,
     frequency_writer: Any | None = None,
     step_writer: Any | None = None,
+    dynamic_policy: RawAccumulatedDistancePolicy | SeaCacheSpectralDistancePolicy | None = None,
+    dynamic_decision_writer: Any | None = None,
     log_diagnostics: bool = False,
 ) -> Any:
     setup_deco_pythonpath(config.deco_dir)
@@ -117,6 +121,9 @@ def build_deco_sampler(
         velocity_writer=velocity_writer,
         frequency_writer=frequency_writer,
         step_writer=step_writer,
+        dynamic_policy=dynamic_policy,
+        dynamic_decision_writer=dynamic_decision_writer,
+        dynamic_proxy_downsample=config.dynamic_proxy_downsample,
         log_diagnostics=log_diagnostics,
         num_steps=config.steps,
         guidance=config.cfg,

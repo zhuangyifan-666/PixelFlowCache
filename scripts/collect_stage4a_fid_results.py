@@ -64,15 +64,23 @@ def _parse_model_filter(value: str | None) -> set[str] | None:
     return models or None
 
 
+def _parse_run_id_filter(value: str | None) -> set[str] | None:
+    if not value:
+        return None
+    run_ids = {item.strip() for item in value.split(",") if item.strip()}
+    return run_ids or None
+
+
 def _method_dirs(root: Path, run_id: str | None = None, model: str | None = None) -> list[Path]:
     model_filter = _parse_model_filter(model)
+    run_id_filter = _parse_run_id_filter(run_id)
     paths = []
     for path in sorted(root.glob("*/*/*")):
         if not path.is_dir() or not (path / "generation_meta.json").exists():
             continue
         path_model = path.parents[1].name
         path_run_id = path.parent.name
-        if run_id and path_run_id != run_id:
+        if run_id_filter and path_run_id not in run_id_filter:
             continue
         if model_filter and path_model.lower() not in model_filter:
             continue

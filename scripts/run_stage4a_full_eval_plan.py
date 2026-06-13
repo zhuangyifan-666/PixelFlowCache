@@ -12,6 +12,8 @@ JIT_METHODS = [
     "no_cache_50",
     "bfc_quality_t02_08",
     "bfc_speed_t02_10",
+    "teacache_style",
+    "seacache_style",
     "reduced_steps_35",
     "reduced_steps_30",
 ]
@@ -19,6 +21,8 @@ DECO_METHODS = [
     "no_cache_50",
     "bfc_all_candidates_t02_10",
     "bfc_backbone_plus_final_t02_10",
+    "teacache_style",
+    "seacache_style",
     "reduced_steps_35",
     "reduced_steps_30",
 ]

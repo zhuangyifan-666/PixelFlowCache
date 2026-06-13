@@ -2,6 +2,8 @@
 
 BoundaryFlowCache is a compact implementation of boundary-aware caching for pixel-space flow diffusion models. The retained code focuses on final 50-step generation, BoundaryFlowCache acceleration, reduced-step baselines, and FID/IS evaluation.
 
+The codebase is being refactored into PixBFC, a general adapter-based framework for pixel-space diffusion and flow models. JiT and DeCo remain the supported models; new models should add a boundary adapter instead of changing the core cache state.
+
 ## Supported Models
 
 - JiT-B/16 ImageNet-256
@@ -106,11 +108,19 @@ conda run -n jit python scripts/plot_stage4a_full_eval.py \
 
 ## Repository Layout
 
+- `pfc/core`: generic PixBFC boundary specs, model adapter interface, scheduler interface, runtime container, and registry
+- `pfc/adapters`: JiT and DeCo boundary adapters
 - `pfc/cache`: cache state, fixed-interval policy, cached module wrappers, JiT/DeCo BoundaryFlowCache wrappers
 - `pfc/eval`: method presets, label scheduling, generation IO, JiT/DeCo runtime helpers
 - `pfc/diagnostics`: lightweight tensor and frequency diagnostics used by retained runtime code
 - `scripts`: final generation, FID/IS, ImageNet reference, command planning, collection, plotting, and submodule setup utilities
 - `docs`: final method, setup, inference/FID, 50k results, and cleanup manifest
+
+## Generalization To New Pixel Diffusion Models
+
+PixBFC represents model-specific details through a `PixelDiffusionModelAdapter`. An adapter declares the prediction parameterization, lists cacheable boundaries, selects a default boundary set, and installs wrappers on an already constructed model. The cache state and fixed-window scheduler stay model-independent.
+
+See [docs/PIXBFC_GENERALIZATION.md](docs/PIXBFC_GENERALIZATION.md) for the abstraction and the checklist for adding a future PixelGen or PixelDiT adapter.
 
 ## Not Included
 
@@ -118,4 +128,16 @@ conda run -n jit python scripts/plot_stage4a_full_eval.py \
 - Checkpoints, datasets, generated samples, logs, plots, or uploaded result bundles
 - Token cache, adaptive online policy, solver-aware cache, calibration, or frequency-aware cache
 
-See [docs/METHOD.md](docs/METHOD.md), [docs/SETUP.md](docs/SETUP.md), and [docs/INFERENCE_AND_FID.md](docs/INFERENCE_AND_FID.md) for details.
+See [docs/METHOD.md](docs/METHOD.md), [docs/PIXBFC_GENERALIZATION.md](docs/PIXBFC_GENERALIZATION.md), [docs/SETUP.md](docs/SETUP.md), and [docs/INFERENCE_AND_FID.md](docs/INFERENCE_AND_FID.md) for details.
+
+## Adapted SeaCache-Style Baseline
+
+The codebase also includes independent adapted `teacache_style` and `seacache_style` dynamic-cache baselines for JiT and DeCo. These use the current image/state `x_t` as a low-overhead proxy and reuse BoundaryFlowCache cache units for fair comparison. They are not official SeaCache results.
+
+Print single-GPU threshold sweep commands:
+
+```bash
+bash scripts/print_stage4a_seacache_theta006_commands.sh
+```
+
+The final adapted SeaCache-style baseline target is `theta/delta = 0.06`. Numerical results should be added only after the theta=0.06 50k runs and FID/IS collection complete. See [docs/BASELINE_SEACACHE_STYLE.md](docs/BASELINE_SEACACHE_STYLE.md) for the method details and suggested protocol.

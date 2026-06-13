@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 
-MethodType = Literal["reference", "cache", "reduced_steps"]
+MethodType = Literal["reference", "cache", "dynamic_cache", "reduced_steps"]
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,10 @@ class GenerationMethodPreset:
     active_t_max: float | None
     cache_interval: int | None
     active_window_warmup_refreshes: int = 0
+    dynamic_cache_type: str | None = None
+    dynamic_cache_threshold: float | None = None
+    sea_beta: float = 2.0
+    sea_proxy_downsample: int = 64
     description: str = ""
 
 
@@ -89,6 +93,40 @@ def get_jit_stage4a_methods() -> dict[str, GenerationMethodPreset]:
             active_t_max=None,
             cache_interval=None,
             description="30-step no-cache JiT reduced-step baseline.",
+        ),
+        GenerationMethodPreset(
+            model_name="JiT",
+            method_name="teacache_style",
+            method_type="dynamic_cache",
+            reference_steps=50,
+            eval_steps=50,
+            cache_preset={"cache_layers": "all"},
+            deco_cache_units=None,
+            active_t_min=None,
+            active_t_max=None,
+            cache_interval=None,
+            dynamic_cache_type="tea",
+            dynamic_cache_threshold=0.10,
+            sea_beta=2.0,
+            sea_proxy_downsample=64,
+            description="Adapted TeaCache-style raw accumulated-distance baseline using x_t proxy.",
+        ),
+        GenerationMethodPreset(
+            model_name="JiT",
+            method_name="seacache_style",
+            method_type="dynamic_cache",
+            reference_steps=50,
+            eval_steps=50,
+            cache_preset={"cache_layers": "all"},
+            deco_cache_units=None,
+            active_t_min=None,
+            active_t_max=None,
+            cache_interval=None,
+            dynamic_cache_type="sea",
+            dynamic_cache_threshold=0.06,
+            sea_beta=2.0,
+            sea_proxy_downsample=64,
+            description="Adapted SeaCache-style SEA-filtered accumulated-distance baseline using x_t proxy.",
         ),
     ]
     return {method.method_name: method for method in methods}
@@ -161,6 +199,40 @@ def get_deco_stage4a_methods() -> dict[str, GenerationMethodPreset]:
             cache_interval=None,
             description="30-step no-cache DeCo reduced-step baseline.",
         ),
+        GenerationMethodPreset(
+            model_name="DeCo",
+            method_name="teacache_style",
+            method_type="dynamic_cache",
+            reference_steps=50,
+            eval_steps=50,
+            cache_preset=None,
+            deco_cache_units="all_candidates",
+            active_t_min=None,
+            active_t_max=None,
+            cache_interval=None,
+            dynamic_cache_type="tea",
+            dynamic_cache_threshold=0.10,
+            sea_beta=2.0,
+            sea_proxy_downsample=64,
+            description="Adapted TeaCache-style raw accumulated-distance baseline using x_t proxy.",
+        ),
+        GenerationMethodPreset(
+            model_name="DeCo",
+            method_name="seacache_style",
+            method_type="dynamic_cache",
+            reference_steps=50,
+            eval_steps=50,
+            cache_preset=None,
+            deco_cache_units="all_candidates",
+            active_t_min=None,
+            active_t_max=None,
+            cache_interval=None,
+            dynamic_cache_type="sea",
+            dynamic_cache_threshold=0.06,
+            sea_beta=2.0,
+            sea_proxy_downsample=64,
+            description="Adapted SeaCache-style SEA-filtered accumulated-distance baseline using x_t proxy.",
+        ),
     ]
     return {method.method_name: method for method in methods}
 
@@ -175,4 +247,3 @@ def list_jit_stage4a_method_names() -> list[str]:
 
 def list_deco_stage4a_method_names() -> list[str]:
     return list(get_deco_stage4a_methods())
-
