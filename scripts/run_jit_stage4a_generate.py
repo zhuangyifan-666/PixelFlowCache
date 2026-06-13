@@ -87,6 +87,7 @@ def _pixbfc_static_meta(method_type: str) -> dict[str, Any]:
             "name": "jit_whole_backbone",
             "description": "Resolved to concrete JiT block names after model construction.",
             "module_names": "all_blocks",
+            "resolved_after_model_load": True,
         }
     return {
         "pixbfc_adapter": adapter.describe(),

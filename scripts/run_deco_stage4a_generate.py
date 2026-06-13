@@ -84,6 +84,7 @@ def _pixbfc_static_meta(method_type: str, preset_name: str) -> dict[str, Any]:
             "name": boundary_name,
             "description": "Resolved to concrete DeCo module names after model construction.",
             "module_names": "deco_cache_candidates",
+            "resolved_after_model_load": True,
         }
     return {
         "pixbfc_adapter": adapter.describe(),
