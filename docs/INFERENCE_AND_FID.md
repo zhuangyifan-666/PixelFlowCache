@@ -32,12 +32,34 @@ conda run -n deco python scripts/run_deco_stage4a_generate.py \
 
 Use `--dry-run` to validate checkpoint and config paths without loading the model.
 
+## PixelGen Generation
+
+PixelGen support is experimental/in progress for future ImageNet-256 Stage 4A runs. The commands below are entry points only; no PixelGen 50k FID/IS results are claimed in this repository.
+
+```bash
+conda run -n pixelgen python scripts/run_pixelgen_stage4a_generate.py \
+  --method bfc_quality_t02_08 \
+  --num-images 8 \
+  --batch-size 2 \
+  --seed 0 \
+  --run-id dryrun_pixelgen \
+  --pixelgen-ckpt ckpts/PixelGen/PixelGen_XL.ckpt \
+  --dry-run
+```
+
+Print the PixelGen 50k command plan without running generation:
+
+```bash
+bash scripts/print_stage4a_pixelgen_50k_commands.sh
+```
+
 ## Command Plans
 
 ```bash
 bash scripts/print_stage4a_smoke_commands.sh
 bash scripts/print_stage4a_proxy_fid_commands.sh
 bash scripts/print_stage4a_full_50k_commands.sh
+bash scripts/print_stage4a_pixelgen_50k_commands.sh
 ```
 
 For a custom plan:

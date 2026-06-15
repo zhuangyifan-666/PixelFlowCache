@@ -19,6 +19,7 @@ class GenerationMethodPreset:
     active_t_min: float | None
     active_t_max: float | None
     cache_interval: int | None
+    solver_stages: tuple[str, ...] | None = None
     active_window_warmup_refreshes: int = 0
     dynamic_cache_type: str | None = None
     dynamic_cache_threshold: float | None = None
@@ -237,6 +238,94 @@ def get_deco_stage4a_methods() -> dict[str, GenerationMethodPreset]:
     return {method.method_name: method for method in methods}
 
 
+def get_pixelgen_stage4a_methods() -> dict[str, GenerationMethodPreset]:
+    solver_stages = ("heun_predictor", "heun_corrector")
+    methods = [
+        GenerationMethodPreset(
+            model_name="PixelGen",
+            method_name="no_cache_50",
+            method_type="reference",
+            reference_steps=50,
+            eval_steps=50,
+            cache_preset=None,
+            deco_cache_units=None,
+            active_t_min=None,
+            active_t_max=None,
+            cache_interval=None,
+            description="50-step no-cache PixelGen reference.",
+        ),
+        GenerationMethodPreset(
+            model_name="PixelGen",
+            method_name="bfc_quality_t02_08",
+            method_type="cache",
+            reference_steps=50,
+            eval_steps=50,
+            cache_preset={"cache_layers": "all", "cache_units": "pixelgen_jit_blocks"},
+            deco_cache_units=None,
+            active_t_min=0.2,
+            active_t_max=0.8,
+            cache_interval=2,
+            solver_stages=solver_stages,
+            description="BoundaryFlowCache quality preset: all PixelGen JiT-style blocks, interval 2, active t [0.2,0.8).",
+        ),
+        GenerationMethodPreset(
+            model_name="PixelGen",
+            method_name="bfc_speed_t02_10",
+            method_type="cache",
+            reference_steps=50,
+            eval_steps=50,
+            cache_preset={"cache_layers": "all", "cache_units": "pixelgen_jit_blocks"},
+            deco_cache_units=None,
+            active_t_min=0.2,
+            active_t_max=1.0,
+            cache_interval=2,
+            solver_stages=solver_stages,
+            description="BoundaryFlowCache speed preset: all PixelGen JiT-style blocks, interval 2, active t [0.2,1.0).",
+        ),
+        GenerationMethodPreset(
+            model_name="PixelGen",
+            method_name="bfc_speed_t02_09",
+            method_type="cache",
+            reference_steps=50,
+            eval_steps=50,
+            cache_preset={"cache_layers": "all", "cache_units": "pixelgen_jit_blocks"},
+            deco_cache_units=None,
+            active_t_min=0.2,
+            active_t_max=0.9,
+            cache_interval=2,
+            solver_stages=solver_stages,
+            description="PixelGen safety ablation: all JiT-style blocks, interval 2, active t [0.2,0.9).",
+        ),
+        GenerationMethodPreset(
+            model_name="PixelGen",
+            method_name="reduced_steps_35",
+            method_type="reduced_steps",
+            reference_steps=50,
+            eval_steps=35,
+            cache_preset=None,
+            deco_cache_units=None,
+            active_t_min=None,
+            active_t_max=None,
+            cache_interval=None,
+            description="35-step no-cache PixelGen reduced-step baseline.",
+        ),
+        GenerationMethodPreset(
+            model_name="PixelGen",
+            method_name="reduced_steps_30",
+            method_type="reduced_steps",
+            reference_steps=50,
+            eval_steps=30,
+            cache_preset=None,
+            deco_cache_units=None,
+            active_t_min=None,
+            active_t_max=None,
+            cache_interval=None,
+            description="30-step no-cache PixelGen reduced-step baseline.",
+        ),
+    ]
+    return {method.method_name: method for method in methods}
+
+
 def preset_to_json_dict(preset: GenerationMethodPreset) -> dict[str, Any]:
     return asdict(preset)
 
@@ -247,3 +336,7 @@ def list_jit_stage4a_method_names() -> list[str]:
 
 def list_deco_stage4a_method_names() -> list[str]:
     return list(get_deco_stage4a_methods())
+
+
+def list_pixelgen_stage4a_method_names() -> list[str]:
+    return list(get_pixelgen_stage4a_methods())

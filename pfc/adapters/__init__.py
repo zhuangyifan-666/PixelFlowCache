@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from pfc.adapters.deco_boundary_adapter import DeCoBoundaryAdapter
 from pfc.adapters.jit_boundary_adapter import JiTBoundaryAdapter
+from pfc.adapters.pixelgen_boundary_adapter import PixelGenBoundaryAdapter
 from pfc.core.registry import register_adapter
 
 register_adapter("deco", DeCoBoundaryAdapter)
 register_adapter("jit", JiTBoundaryAdapter)
+register_adapter("pixelgen", PixelGenBoundaryAdapter)
 
-__all__ = ["DeCoBoundaryAdapter", "JiTBoundaryAdapter"]
+__all__ = ["DeCoBoundaryAdapter", "JiTBoundaryAdapter", "PixelGenBoundaryAdapter"]
