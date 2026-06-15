@@ -5,3 +5,9 @@
 	path = third_party/DeCo
 	url = https://github.com/Zehong-Ma/DeCo.git
 
+[submodule "third_party/PixelDiT"]
+	path = third_party/PixelDiT
+	url = https://github.com/NVlabs/PixelDiT.git
+[submodule "third_party/PixelGen"]
+	path = third_party/PixelGen
+	url = https://github.com/Zehong-Ma/PixelGen.git
