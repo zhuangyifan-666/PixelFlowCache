@@ -1,0 +1,22 @@
+model: pixelgen
+checkpoint: ckpts/PixelGen/PixelGen_XL.ckpt
+image_size: 256
+patch_size: 16
+steps: 50
+cfg: 2.25
+timeshift: 2.0
+guidance_interval: [0.1, 0.9]
+t_eps: 0.05
+cache:
+  cache_units: pixelgen_jit_blocks
+  cache_interval: 2
+  solver_stages:
+    - heun_predictor
+    - heun_corrector
+methods:
+  - no_cache_50
+  - bfc_quality_t02_08
+  - bfc_speed_t02_10
+  - reduced_steps_35
+  - reduced_steps_30
+  - bfc_speed_t02_09

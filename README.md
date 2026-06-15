@@ -2,12 +2,13 @@
 
 BoundaryFlowCache is a compact implementation of boundary-aware caching for pixel-space flow diffusion models. The retained code focuses on final 50-step generation, BoundaryFlowCache acceleration, reduced-step baselines, and FID/IS evaluation.
 
-The codebase is being refactored into PixBFC, a general adapter-based framework for pixel-space diffusion and flow models. JiT and DeCo remain the supported models; new models should add a boundary adapter instead of changing the core cache state.
+The codebase is being refactored into PixBFC, a general adapter-based framework for pixel-space diffusion and flow models. JiT and DeCo remain the supported models with completed 50k runs. PixelGen support is experimental/in progress for upcoming ImageNet-256 runs; no PixelGen results are claimed yet.
 
 ## Supported Models
 
 - JiT-B/16 ImageNet-256
 - DeCo ImageNet-256
+- PixelGen-XL ImageNet-256 (experimental/in progress; Stage 4A entry points only, results not run)
 
 ## Main 50k Results
 
@@ -28,15 +29,16 @@ The DeCo `reduced_steps_35` run had a timing anomaly and is documented in [docs/
 ## Installation
 
 ```bash
-git submodule update --init --recursive third_party/JiT third_party/DeCo
+git submodule update --init --recursive third_party/JiT third_party/DeCo third_party/PixelGen
 ```
 
 Expected local assets:
 
 - JiT checkpoint: `ckpts/JiT/JiT-B-16-256/checkpoint-last.pth`
 - DeCo checkpoint: `ckpts/DeCo/imagenet256_epoch800/imagenet256_epoch800.ckpt`
+- PixelGen checkpoint for experimental runs: `ckpts/PixelGen/PixelGen_XL.ckpt`
 - ImageNet root: a local ImageFolder-compatible ILSVRC directory
-- Conda envs: `jit` for JiT/evaluation, `deco` for DeCo
+- Conda envs: `jit` for JiT/evaluation, `deco` for DeCo, `pixelgen` for PixelGen generation
 
 Checkpoints, datasets, logs, outputs, and result bundles are ignored and are not part of the repository.
 
@@ -65,6 +67,26 @@ conda run -n deco python scripts/run_deco_stage4a_generate.py \
   --save-png \
   --no-save-npz
 ```
+
+PixelGen experimental dry-run example:
+
+```bash
+conda run -n pixelgen python scripts/run_pixelgen_stage4a_generate.py \
+  --method bfc_quality_t02_08 \
+  --num-images 8 \
+  --batch-size 2 \
+  --run-id dryrun_pixelgen \
+  --pixelgen-ckpt ckpts/PixelGen/PixelGen_XL.ckpt \
+  --dry-run
+```
+
+PixelGen 50k command plans can be printed with:
+
+```bash
+bash scripts/print_stage4a_pixelgen_50k_commands.sh
+```
+
+These commands are entry points for future runs; PixelGen FID/IS numbers have not been generated.
 
 Print command plans without running generation:
 
@@ -109,9 +131,9 @@ conda run -n jit python scripts/plot_stage4a_full_eval.py \
 ## Repository Layout
 
 - `pfc/core`: generic PixBFC boundary specs, model adapter interface, scheduler interface, runtime container, and registry
-- `pfc/adapters`: JiT and DeCo boundary adapters
+- `pfc/adapters`: JiT, DeCo, and experimental PixelGen boundary adapters
 - `pfc/cache`: cache state, fixed-interval policy, cached module wrappers, JiT/DeCo BoundaryFlowCache wrappers
-- `pfc/eval`: method presets, label scheduling, generation IO, JiT/DeCo runtime helpers
+- `pfc/eval`: method presets, label scheduling, generation IO, JiT/DeCo runtime helpers, and experimental PixelGen runtime helpers
 - `pfc/diagnostics`: lightweight tensor and frequency diagnostics used by retained runtime code
 - `scripts`: final generation, FID/IS, ImageNet reference, command planning, collection, plotting, and submodule setup utilities
 - `docs`: final method, setup, inference/FID, 50k results, and cleanup manifest
@@ -120,7 +142,7 @@ conda run -n jit python scripts/plot_stage4a_full_eval.py \
 
 PixBFC represents model-specific details through a `PixelDiffusionModelAdapter`. An adapter declares the prediction parameterization, lists cacheable boundaries, selects a default boundary set, and installs wrappers on an already constructed model. The cache state and fixed-window scheduler stay model-independent.
 
-See [docs/PIXBFC_GENERALIZATION.md](docs/PIXBFC_GENERALIZATION.md) for the abstraction and the checklist for adding a future PixelGen or PixelDiT adapter.
+See [docs/PIXBFC_GENERALIZATION.md](docs/PIXBFC_GENERALIZATION.md) for the abstraction and the checklist for adding additional model adapters.
 
 ## Not Included
 

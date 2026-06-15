@@ -12,6 +12,7 @@ Expected submodules:
 
 - `third_party/JiT`
 - `third_party/DeCo`
+- `third_party/PixelGen` for experimental PixelGen Stage 4A runs
 
 Do not edit files inside `third_party` for BoundaryFlowCache changes.
 
@@ -21,8 +22,9 @@ The scripts assume separate conda environments:
 
 - `jit`: JiT generation, FID/IS evaluation, plotting, collection, and tests
 - `deco`: DeCo generation
+- `pixelgen`: experimental PixelGen generation
 
-Use `conda run -n jit ...` and `conda run -n deco ...` in command plans.
+Use `conda run -n jit ...`, `conda run -n deco ...`, and `conda run -n pixelgen ...` in command plans.
 
 ## Checkpoints
 
@@ -30,8 +32,9 @@ Expected local paths:
 
 - `ckpts/JiT/JiT-B-16-256/checkpoint-last.pth`
 - `ckpts/DeCo/imagenet256_epoch800/imagenet256_epoch800.ckpt`
+- `ckpts/PixelGen/PixelGen_XL.ckpt` for experimental PixelGen runs
 
-The files are not committed. If local layouts differ, pass `--jit-ckpt-dir` or `--deco-ckpt` to the generation scripts.
+The files are not committed. If local layouts differ, pass `--jit-ckpt-dir`, `--deco-ckpt`, or `--pixelgen-ckpt` to the generation scripts.
 
 ## ImageNet
 
@@ -55,3 +58,5 @@ export PFC_CUDA_DEVICES=0
 ```
 
 The cleanup and validation commands do not launch long GPU jobs.
+
+PixelGen support is experimental/in progress. The repository provides the adapter, dry-run, command planner, and generation entry point, but no PixelGen 50k results are included.
