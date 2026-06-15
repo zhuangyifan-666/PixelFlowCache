@@ -241,7 +241,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--run-id")
     parser.add_argument("--pixelgen-dir", type=Path, default=ROOT / "third_party/PixelGen")
-    parser.add_argument("--pixelgen-ckpt", type=Path, default=ROOT / "ckpts/PixelGen/PixelGen_XL.ckpt")
+    parser.add_argument("--pixelgen-ckpt", type=Path, default=ROOT / "ckpts/PixelGen/PixelGen_XL_160ep.ckpt")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--cfg", type=float, default=2.25)
     parser.add_argument("--timeshift", type=float, default=2.0)

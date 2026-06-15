@@ -36,7 +36,7 @@ Expected local assets:
 
 - JiT checkpoint: `ckpts/JiT/JiT-B-16-256/checkpoint-last.pth`
 - DeCo checkpoint: `ckpts/DeCo/imagenet256_epoch800/imagenet256_epoch800.ckpt`
-- PixelGen checkpoint for experimental runs: `ckpts/PixelGen/PixelGen_XL.ckpt`
+- PixelGen checkpoint for experimental runs: `ckpts/PixelGen/PixelGen_XL_160ep.ckpt`
 - ImageNet root: a local ImageFolder-compatible ILSVRC directory
 - Conda envs: `jit` for JiT/evaluation, `deco` for DeCo, `pixelgen` for PixelGen generation
 
@@ -76,7 +76,7 @@ conda run -n pixelgen python scripts/run_pixelgen_stage4a_generate.py \
   --num-images 8 \
   --batch-size 2 \
   --run-id dryrun_pixelgen \
-  --pixelgen-ckpt ckpts/PixelGen/PixelGen_XL.ckpt \
+  --pixelgen-ckpt ckpts/PixelGen/PixelGen_XL_160ep.ckpt \
   --dry-run
 ```
 

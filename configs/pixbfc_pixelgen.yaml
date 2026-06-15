@@ -1,5 +1,5 @@
 model: pixelgen
-checkpoint: ckpts/PixelGen/PixelGen_XL.ckpt
+checkpoint: ckpts/PixelGen/PixelGen_XL_160ep.ckpt
 image_size: 256
 patch_size: 16
 steps: 50

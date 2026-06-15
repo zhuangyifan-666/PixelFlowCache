@@ -32,7 +32,7 @@ Expected local paths:
 
 - `ckpts/JiT/JiT-B-16-256/checkpoint-last.pth`
 - `ckpts/DeCo/imagenet256_epoch800/imagenet256_epoch800.ckpt`
-- `ckpts/PixelGen/PixelGen_XL.ckpt` for experimental PixelGen runs
+- `ckpts/PixelGen/PixelGen_XL_160ep.ckpt` for experimental PixelGen runs
 
 The files are not committed. If local layouts differ, pass `--jit-ckpt-dir`, `--deco-ckpt`, or `--pixelgen-ckpt` to the generation scripts.
 

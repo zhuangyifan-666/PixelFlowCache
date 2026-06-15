@@ -112,7 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--run-id")
     parser.add_argument("--output-root", type=Path, default=ROOT / "outputs/stage4a/full_generation")
-    parser.add_argument("--pixelgen-ckpt", type=Path, default=ROOT / "ckpts/PixelGen/PixelGen_XL.ckpt")
+    parser.add_argument("--pixelgen-ckpt", type=Path, default=ROOT / "ckpts/PixelGen/PixelGen_XL_160ep.ckpt")
     parser.add_argument("--pixelgen-env", default="pixelgen")
     parser.add_argument("--fid-env", default="jit")
     parser.add_argument("--fid-batch-size", type=int, default=64)
