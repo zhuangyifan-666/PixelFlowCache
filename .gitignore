@@ -17,5 +17,3 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 wandb/
-third_party/PixelDiT/
-third_party/PixelGen/
