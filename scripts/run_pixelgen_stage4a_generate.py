@@ -96,6 +96,19 @@ def _make_noise_for_indices(indices: list[int], seed: int, img_size: int, noise_
     return torch.cat(chunks, dim=0).to(device)
 
 
+def _autocast_context(device: Any, amp_dtype: str):
+    import contextlib
+    import torch
+
+    if getattr(device, "type", str(device)) != "cuda" or amp_dtype == "fp32":
+        return contextlib.nullcontext()
+    dtype_by_name = {
+        "bf16": torch.bfloat16,
+        "fp16": torch.float16,
+    }
+    return torch.autocast(device_type="cuda", dtype=dtype_by_name[amp_dtype])
+
+
 def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     import torch
 
@@ -183,7 +196,7 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         batch_config = replace(config, batch_size=len(indices))
         if cache_state is not None:
             cache_state.clear_entries()
-        with torch.no_grad():
+        with torch.no_grad(), _autocast_context(device, args.amp_dtype):
             output, _records = sample_pixelgen_heun_jit(
                 denoiser,
                 batch_labels,
@@ -255,6 +268,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num-heads", type=int, default=16)
     parser.add_argument("--num-classes", type=int, default=1000)
     parser.add_argument("--noise-scale", type=float, default=1.0)
+    parser.add_argument("--amp-dtype", choices=("bf16", "fp16", "fp32"), default="bf16")
     parser.add_argument("--enable-compile", dest="enable_compile", action="store_true", default=False)
     parser.add_argument("--disable-compile", dest="enable_compile", action="store_false")
     return parser
@@ -301,6 +315,7 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
         "num_heads": args.num_heads,
         "num_classes": args.num_classes,
         "noise_scale": args.noise_scale,
+        "amp_dtype": args.amp_dtype,
         "enable_compile": args.enable_compile,
         "cache_interval": preset.cache_interval,
         "active_t_min": preset.active_t_min,

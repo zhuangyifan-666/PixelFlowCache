@@ -7,6 +7,7 @@ cfg: 2.25
 timeshift: 2.0
 guidance_interval: [0.1, 0.9]
 t_eps: 0.05
+amp_dtype: bf16
 cache:
   cache_units: pixelgen_jit_blocks
   cache_interval: 2

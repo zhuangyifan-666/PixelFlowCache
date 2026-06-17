@@ -77,6 +77,7 @@ conda run -n pixelgen python scripts/run_pixelgen_stage4a_generate.py \
   --batch-size 2 \
   --run-id dryrun_pixelgen \
   --pixelgen-ckpt ckpts/PixelGen/PixelGen_XL_160ep.ckpt \
+  --amp-dtype bf16 \
   --dry-run
 ```
 

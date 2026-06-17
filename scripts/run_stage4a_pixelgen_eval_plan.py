@@ -74,6 +74,7 @@ def build_plan(args: argparse.Namespace) -> list[str]:
             f"--cfg {args.cfg} --timeshift {args.timeshift} "
             f"--guidance-interval-min {args.guidance_interval_min} "
             f"--guidance-interval-max {args.guidance_interval_max} "
+            f"--amp-dtype {_q(args.amp_dtype)} "
             "--save-png --no-save-npz --resume"
         )
         fake_dir = args.output_root / "pixelgen" / run_id / method / "images"
@@ -123,6 +124,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeshift", type=float, default=2.0)
     parser.add_argument("--guidance-interval-min", type=float, default=0.1)
     parser.add_argument("--guidance-interval-max", type=float, default=0.9)
+    parser.add_argument("--amp-dtype", choices=("bf16", "fp16", "fp32"), default="bf16")
     parser.add_argument("--out-script", type=Path)
     return parser
 
