@@ -59,13 +59,13 @@ class CachedModule(nn.Module):
             return False
         if not self.policy.enabled:
             return False
-        if not self.policy.should_cache_module(self.module_name):
-            return False
-        if not self.policy.is_branch_enabled(self.cache_state.cfg_branch):
-            return False
-        if self.cache_state.solver_stage not in self.policy.solver_stages:
-            return False
-        return True
+        return self.policy.is_active(
+            self.cache_state.current_step_idx,
+            self.cache_state.current_t,
+            self.module_name,
+            self.cache_state.cfg_branch,
+            self.cache_state.solver_stage,
+        )
 
     @staticmethod
     def _first_tensor(args: tuple[Any, ...], kwargs: dict[str, Any]) -> torch.Tensor | None:

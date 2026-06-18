@@ -69,3 +69,25 @@ def test_batch_size_change_uses_safe_compute_path() -> None:
     assert out.shape == (2, 2)
     assert state.summary()["hits"] == 0
     assert state.summary()["misses"] == 2
+
+
+def test_inactive_window_does_not_populate_cache_for_later_reuse() -> None:
+    module = CountingModule()
+    state = RuntimeCacheState()
+    policy = FixedIntervalCachePolicy(interval=2, active_t_min=0.1, active_t_max=0.8)
+    wrapped = CachedModule(module, "blocks.0", state, policy)
+
+    state.set_context(1, 0.05, "cond")
+    inactive = wrapped(torch.zeros(1, 2))
+    state.set_context(3, 0.15, "cond")
+    first_active = wrapped(torch.zeros(1, 2))
+    state.set_context(5, 0.25, "cond")
+    reused_active = wrapped(torch.zeros(1, 2))
+
+    assert module.calls == 2
+    assert not torch.equal(first_active, inactive)
+    assert torch.equal(reused_active, first_active)
+    summary = state.summary()
+    assert summary["disabled"] == 1
+    assert summary["misses"] == 1
+    assert summary["hits"] == 1
