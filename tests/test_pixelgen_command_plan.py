@@ -59,3 +59,30 @@ def test_pixelgen_command_plan_second_round_methods() -> None:
     assert "# Second round" in output
     assert "CUDA_VISIBLE_DEVICES=0 conda run -n pixelgen python scripts/run_pixelgen_stage4a_generate.py --method reduced_steps_35" in output
     assert "CUDA_VISIBLE_DEVICES=1 conda run -n pixelgen python scripts/run_pixelgen_stage4a_generate.py --method bfc_speed_t02_09" in output
+    assert "--method seacache_style" not in output
+
+
+def test_pixelgen_command_plan_seacache_style_prints_dynamic_args() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/run_stage4a_pixelgen_eval_plan.py",
+            "--num-images",
+            "100",
+            "--methods",
+            "seacache_style",
+        ],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    output = result.stdout
+    assert "run_pixelgen_stage4a_generate.py --method seacache_style" in output
+    assert "--dynamic-cache-threshold 0.06" in output
+    assert "--sea-beta 2.0" in output
+    assert "--sea-proxy-downsample 64" in output
+    assert "evaluate_stage4a_fid.py" in output
+    assert "torchrun" not in output
+    assert "accelerate launch" not in output
+    assert "nohup" not in output

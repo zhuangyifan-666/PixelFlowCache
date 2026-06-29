@@ -14,10 +14,19 @@ cache:
   solver_stages:
     - heun_predictor
     - heun_corrector
+dynamic_cache:
+  dynamic_cache_type: sea
+  dynamic_cache_threshold: 0.06
+  sea_beta: 2.0
+  sea_proxy_downsample: 64
+  solver_stages:
+    - heun_predictor
+    - heun_corrector
 methods:
   - no_cache_50
   - bfc_quality_t02_08
   - bfc_speed_t02_10
   - reduced_steps_35
   - reduced_steps_30
+  - seacache_style
   - bfc_speed_t02_09

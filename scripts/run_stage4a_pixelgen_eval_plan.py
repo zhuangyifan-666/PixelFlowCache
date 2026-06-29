@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-PIXELGEN_METHODS = [
+PIXELGEN_DEFAULT_METHODS = [
     "no_cache_50",
     "bfc_quality_t02_08",
     "bfc_speed_t02_10",
@@ -16,6 +16,7 @@ PIXELGEN_METHODS = [
     "reduced_steps_35",
     "bfc_speed_t02_09",
 ]
+PIXELGEN_METHODS = [*PIXELGEN_DEFAULT_METHODS, "seacache_style"]
 
 
 def _q(value: str | Path) -> str:
@@ -28,7 +29,7 @@ def _split_csv(value: str) -> list[str]:
 
 def _method_filter(requested: list[str] | None) -> list[str]:
     if requested is None:
-        return list(PIXELGEN_METHODS)
+        return list(PIXELGEN_DEFAULT_METHODS)
     unknown = sorted(set(requested) - set(PIXELGEN_METHODS))
     if unknown:
         raise ValueError(f"Unknown PixelGen Stage 4A methods: {unknown}")
@@ -64,6 +65,16 @@ def build_plan(args: argparse.Namespace) -> list[str]:
         if index == 4:
             commands.extend(["", "# Second round: remaining PixelGen methods."])
         gpu = index % 4
+        dynamic_args = []
+        if method == "seacache_style":
+            dynamic_args = [
+                f"--dynamic-cache-threshold {args.dynamic_cache_threshold}",
+                f"--sea-beta {args.sea_beta}",
+                f"--sea-proxy-downsample {args.sea_proxy_downsample}",
+            ]
+        dynamic_suffix = " ".join(dynamic_args)
+        if dynamic_suffix:
+            dynamic_suffix += " "
         commands.append(
             f"CUDA_VISIBLE_DEVICES={gpu} conda run -n {_q(args.pixelgen_env)} python "
             "scripts/run_pixelgen_stage4a_generate.py "
@@ -75,6 +86,7 @@ def build_plan(args: argparse.Namespace) -> list[str]:
             f"--guidance-interval-min {args.guidance_interval_min} "
             f"--guidance-interval-max {args.guidance_interval_max} "
             f"--amp-dtype {_q(args.amp_dtype)} "
+            f"{dynamic_suffix}"
             "--save-png --no-save-npz --resume"
         )
         fake_dir = args.output_root / "pixelgen" / run_id / method / "images"
@@ -125,6 +137,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--guidance-interval-min", type=float, default=0.1)
     parser.add_argument("--guidance-interval-max", type=float, default=0.9)
     parser.add_argument("--amp-dtype", choices=("bf16", "fp16", "fp32"), default="bf16")
+    parser.add_argument("--dynamic-cache-threshold", type=float, default=0.06)
+    parser.add_argument("--sea-beta", type=float, default=2.0)
+    parser.add_argument("--sea-proxy-downsample", type=int, default=64)
     parser.add_argument("--out-script", type=Path)
     return parser
 
@@ -135,6 +150,12 @@ def main() -> int:
         raise ValueError("--num-images must be positive")
     if args.batch_size_pixelgen <= 0:
         raise ValueError("--batch-size-pixelgen must be positive")
+    if args.dynamic_cache_threshold <= 0:
+        raise ValueError("--dynamic-cache-threshold must be positive")
+    if args.sea_beta <= 0:
+        raise ValueError("--sea-beta must be positive")
+    if args.sea_proxy_downsample < 0:
+        raise ValueError("--sea-proxy-downsample must be non-negative")
     commands = build_plan(args)
     text = "\n".join(commands) + "\n"
     print(text)

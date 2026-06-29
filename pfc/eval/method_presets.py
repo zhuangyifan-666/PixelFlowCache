@@ -322,6 +322,24 @@ def get_pixelgen_stage4a_methods() -> dict[str, GenerationMethodPreset]:
             cache_interval=None,
             description="30-step no-cache PixelGen reduced-step baseline.",
         ),
+        GenerationMethodPreset(
+            model_name="PixelGen",
+            method_name="seacache_style",
+            method_type="dynamic_cache",
+            reference_steps=50,
+            eval_steps=50,
+            cache_preset={"cache_layers": "all", "cache_units": "pixelgen_jit_blocks"},
+            deco_cache_units=None,
+            active_t_min=None,
+            active_t_max=None,
+            cache_interval=None,
+            solver_stages=solver_stages,
+            dynamic_cache_type="sea",
+            dynamic_cache_threshold=0.06,
+            sea_beta=2.0,
+            sea_proxy_downsample=64,
+            description="Adapted SeaCache-style SEA-filtered accumulated-distance baseline using PixelGen x_t proxy.",
+        ),
     ]
     return {method.method_name: method for method in methods}
 

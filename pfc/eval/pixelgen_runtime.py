@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import sys
 from contextlib import contextmanager
+from collections.abc import Callable
+from dataclasses import asdict
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -11,7 +13,9 @@ import torch
 import torch.nn as nn
 
 from pfc.cache.cache_state import RuntimeCacheState
+from pfc.cache.dynamic_proxy import maybe_downsample_proxy, proxy_from_image_state
 from pfc.cache.fixed_interval_policy import FixedIntervalCachePolicy
+from pfc.cache.spectral_dynamic_policy import RawAccumulatedDistancePolicy, SeaCacheSpectralDistancePolicy
 
 
 PIXELGEN_SOLVER_STAGES = ("heun_predictor", "heun_corrector")
@@ -142,6 +146,9 @@ def sample_pixelgen_heun_jit(
     config: PixelGenRuntimeConfig,
     *,
     cache_state: RuntimeCacheState | None = None,
+    dynamic_policy: RawAccumulatedDistancePolicy | SeaCacheSpectralDistancePolicy | None = None,
+    dynamic_proxy_downsample: int = 64,
+    dynamic_decision_writer: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[torch.Tensor, list[dict[str, Any]]]:
     if config.steps <= 0:
         raise ValueError("PixelGen steps must be positive")
@@ -150,6 +157,8 @@ def sample_pixelgen_heun_jit(
 
     if cache_state is not None:
         cache_state.clear_entries()
+    if dynamic_policy is not None:
+        dynamic_policy.clear_batch()
 
     records: list[dict[str, Any]] = []
     x = noise
@@ -171,6 +180,16 @@ def sample_pixelgen_heun_jit(
         if predictor_ran:
             if cache_state is not None:
                 cache_state.set_context(step_idx, t_value, "cfg_cat", solver_stage="heun_predictor")
+            if dynamic_policy is not None:
+                _update_dynamic_policy(
+                    dynamic_policy,
+                    x,
+                    step_idx,
+                    t_value,
+                    solver_stage="heun_predictor",
+                    max_size=dynamic_proxy_downsample,
+                    writer=dynamic_decision_writer,
+                )
             v = _cfg_cat_velocity(denoiser, x, t_cur, cfg_condition, cfg_scale, config.t_eps)
         else:
             v = v_hat
@@ -180,6 +199,16 @@ def sample_pixelgen_heun_jit(
         if corrector_ran:
             if cache_state is not None:
                 cache_state.set_context(step_idx, t_next_value, "cfg_cat", solver_stage="heun_corrector")
+            if dynamic_policy is not None:
+                _update_dynamic_policy(
+                    dynamic_policy,
+                    x_hat,
+                    step_idx,
+                    t_next_value,
+                    solver_stage="heun_corrector",
+                    max_size=dynamic_proxy_downsample,
+                    writer=dynamic_decision_writer,
+                )
             v_hat = _cfg_cat_velocity(denoiser, x_hat, t_next, cfg_condition, cfg_scale, config.t_eps)
             v = (v + v_hat) / 2.0
             x = x + v * dt
@@ -201,6 +230,33 @@ def sample_pixelgen_heun_jit(
             }
         )
     return x, records
+
+
+def _update_dynamic_policy(
+    dynamic_policy: RawAccumulatedDistancePolicy | SeaCacheSpectralDistancePolicy,
+    x: torch.Tensor,
+    step_idx: int,
+    t_value: float,
+    *,
+    solver_stage: str,
+    max_size: int,
+    writer: Callable[[dict[str, Any]], None] | None,
+) -> None:
+    proxy = maybe_downsample_proxy(proxy_from_image_state(x), max_size=max_size)
+    decision = dynamic_policy.update(proxy, step_idx=step_idx, t=t_value, branch="cfg_cat")
+    if writer is not None:
+        payload = asdict(decision)
+        payload.update(
+            {
+                "record_type": "dynamic_cache_decision",
+                "model_name": "PixelGen",
+                "solver_stage": solver_stage,
+                "branch": "cfg_cat",
+                "policy": dynamic_policy.policy_name,
+                "proxy_shape": [int(dim) for dim in proxy.shape],
+            }
+        )
+        writer(payload)
 
 
 def pixelgen_heun_timesteps(

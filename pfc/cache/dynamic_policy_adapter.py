@@ -41,6 +41,25 @@ class DynamicPolicyAdapter:
     def current_decision(self, cfg_branch: str = "global") -> DynamicCacheDecision | None:
         return self.dynamic_policy.current_decision(cfg_branch)
 
+    def is_active(
+        self,
+        step_idx: int,
+        t: float,
+        module_name: str,
+        cfg_branch: str,
+        solver_stage: str,
+    ) -> bool:
+        del step_idx, t
+        if not self.enabled:
+            return False
+        if solver_stage not in self.solver_stages:
+            return False
+        if not self.should_cache_module(module_name):
+            return False
+        if not self.is_branch_enabled(cfg_branch):
+            return False
+        return True
+
     def should_refresh(
         self,
         step_idx: int,

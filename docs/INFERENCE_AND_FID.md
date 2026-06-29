@@ -54,6 +54,30 @@ Print the PixelGen 50k command plan without running generation:
 bash scripts/print_stage4a_pixelgen_50k_commands.sh
 ```
 
+Print the adapted PixelGen SeaCache-style baseline command without running generation:
+
+```bash
+bash scripts/print_stage4a_pixelgen_50k_commands.sh --methods seacache_style
+```
+
+Dry-run the adapted PixelGen SeaCache-style entry point without loading a checkpoint:
+
+```bash
+conda run -n pixelgen python scripts/run_pixelgen_stage4a_generate.py \
+  --method seacache_style \
+  --num-images 8 \
+  --batch-size 2 \
+  --run-id dryrun_pixelgen_seacache \
+  --pixelgen-ckpt ckpts/PixelGen/PixelGen_XL_160ep.ckpt \
+  --amp-dtype bf16 \
+  --dynamic-cache-threshold 0.06 \
+  --sea-beta 2.0 \
+  --sea-proxy-downsample 64 \
+  --dry-run
+```
+
+This is an adapted SeaCache-style dynamic-cache baseline using PixelGen `x_t` proxy decisions; it is not the official SeaCache implementation and should not be reported until its generation and FID/IS evaluation have been run.
+
 ## Command Plans
 
 ```bash
