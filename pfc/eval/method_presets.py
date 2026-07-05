@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 
-MethodType = Literal["reference", "cache", "dynamic_cache", "reduced_steps"]
+MethodType = Literal["reference", "cache", "safe_cache", "dynamic_cache", "reduced_steps"]
 
 
 @dataclass(frozen=True)
@@ -68,6 +68,38 @@ def get_jit_stage4a_methods() -> dict[str, GenerationMethodPreset]:
             active_t_max=1.0,
             cache_interval=2,
             description="BoundaryFlowCache speed preset: all JiT blocks, interval 2, active t [0.2,1.0).",
+        ),
+        GenerationMethodPreset(
+            model_name="JiT",
+            method_name="safe_bfc_quality",
+            method_type="safe_cache",
+            reference_steps=50,
+            eval_steps=50,
+            cache_preset={"cache_layers": "all", "cache_units": "jit_safe_whole_backbone"},
+            deco_cache_units=None,
+            active_t_min=None,
+            active_t_max=None,
+            cache_interval=None,
+            description=(
+                "Safe-BFC quality preset: calibrated solver-perturbation safe map, "
+                "no manual timestep window, no fixed interval."
+            ),
+        ),
+        GenerationMethodPreset(
+            model_name="JiT",
+            method_name="safe_bfc_speed",
+            method_type="safe_cache",
+            reference_steps=50,
+            eval_steps=50,
+            cache_preset={"cache_layers": "all", "cache_units": "jit_safe_whole_backbone"},
+            deco_cache_units=None,
+            active_t_min=None,
+            active_t_max=None,
+            cache_interval=None,
+            description=(
+                "Safe-BFC speed preset: calibrated solver-perturbation safe map, "
+                "no manual timestep window, no fixed interval."
+            ),
         ),
         GenerationMethodPreset(
             model_name="JiT",

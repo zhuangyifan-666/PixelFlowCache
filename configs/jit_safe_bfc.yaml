@@ -1,0 +1,37 @@
+model:
+  name: JiT
+  variant: JiT-B/16
+  image_size: 256
+  steps: 50
+  solver_stage: euler
+
+safe_bfc:
+  policy: SafeMapCachePolicy
+  boundary_groups: whole_backbone
+  default_boundary: jit_whole_backbone
+  quantile: 0.95
+  lte_floor: 1.0e-3
+  eps: 1.0e-12
+  quality:
+    lambda: 0.5
+    max_age: 2
+    safe_map: calibrations/jit_safe/${CALIB_ID}/safe_map_quality.json
+  speed:
+    lambda: 1.0
+    max_age: 3
+    safe_map: calibrations/jit_safe/${CALIB_ID}/safe_map_speed.json
+
+proxy_experiment:
+  note: 1000-image proxy only; do not report as final 50k FID/IS.
+  run_id: stage5a_jit_safe_n1000_seed0
+  calibration_run_id: stage5a_jit_safe_calib128_seed123
+  num_images: 1000
+  batch_size: 8
+  seed: 0
+  methods:
+    - no_cache_50
+    - safe_bfc_quality
+    - safe_bfc_speed
+    - seacache_style
+    - reduced_steps_35
+    - reduced_steps_30

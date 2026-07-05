@@ -6,7 +6,6 @@ import torch
 import torch.nn as nn
 
 from pfc.cache.cache_state import RuntimeCacheState
-from pfc.cache.fixed_interval_policy import FixedIntervalCachePolicy
 
 
 class CachedModule(nn.Module):
@@ -15,7 +14,7 @@ class CachedModule(nn.Module):
         module: nn.Module,
         module_name: str,
         cache_state: RuntimeCacheState,
-        policy: FixedIntervalCachePolicy,
+        policy: Any,
     ) -> None:
         super().__init__()
         self.module = module
@@ -38,7 +37,7 @@ class CachedModule(nn.Module):
         cfg_branch = self.cache_state.cfg_branch
         solver_stage = self.cache_state.solver_stage
 
-        if self.policy.should_reuse(step_idx, t, self.module_name, cfg_branch, solver_stage) and entry is not None:
+        if self._should_reuse_entry_aware(step_idx, t, cfg_branch, solver_stage, entry) and entry is not None:
             if self._entry_matches_current_input(entry.tensor, first_tensor):
                 entry.hit_count += 1
                 self.cache_state.mark_hit(self.module_name)
@@ -66,6 +65,29 @@ class CachedModule(nn.Module):
             self.cache_state.cfg_branch,
             self.cache_state.solver_stage,
         )
+
+    def _should_reuse_entry_aware(
+        self,
+        step_idx: int,
+        t: float,
+        cfg_branch: str,
+        solver_stage: str,
+        entry: Any | None,
+    ) -> bool:
+        if hasattr(self.policy, "should_reuse_entry"):
+            return bool(
+                self.policy.should_reuse_entry(
+                    step_idx=step_idx,
+                    t=t,
+                    module_name=self.module_name,
+                    cfg_branch=cfg_branch,
+                    solver_stage=solver_stage,
+                    entry=entry,
+                )
+            )
+        if entry is None:
+            return False
+        return bool(self.policy.should_reuse(step_idx, t, self.module_name, cfg_branch, solver_stage))
 
     @staticmethod
     def _first_tensor(args: tuple[Any, ...], kwargs: dict[str, Any]) -> torch.Tensor | None:

@@ -40,6 +40,8 @@ def _json_ready(payload: dict[str, Any]) -> dict[str, Any]:
             output[key] = str(value)
         elif isinstance(value, dict):
             output[key] = _json_ready(value)
+        elif isinstance(value, (list, tuple)):
+            output[key] = [str(item) if isinstance(item, Path) else item for item in value]
         else:
             output[key] = value
     return output
@@ -76,13 +78,26 @@ def _resolved_method_meta(args: argparse.Namespace, preset: Any) -> dict[str, An
                 "selected_modules": (preset.cache_preset or {}).get("cache_layers", "all"),
             }
         )
+    elif preset.method_type == "safe_cache":
+        cache_preset = preset.cache_preset or {}
+        method.update(
+            {
+                "cache_units": cache_preset.get("cache_units", "jit_safe_whole_backbone"),
+                "selected_modules": cache_preset.get("cache_layers", "all"),
+                "safe_map_path": str(args.safe_map.resolve()) if args.safe_map else None,
+                "safe_map_exists": bool(args.safe_map and args.safe_map.is_file()),
+                "safe_map_mode": args.safe_map_mode,
+                "safe_max_age_override": args.safe_max_age,
+                "safe_fallback_global_branch": args.safe_fallback_global_branch,
+            }
+        )
     return method
 
 
 def _pixbfc_static_meta(method_type: str) -> dict[str, Any]:
     adapter = JiTBoundaryAdapter()
     boundary_set = None
-    if method_type in {"cache", "dynamic_cache"}:
+    if method_type in {"cache", "safe_cache", "dynamic_cache"}:
         boundary_set = {
             "name": "jit_whole_backbone",
             "description": "Resolved to concrete JiT block names after model construction.",
@@ -136,6 +151,7 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     from pfc.cache.cache_state import RuntimeCacheState
     from pfc.cache.dynamic_policy_adapter import DynamicPolicyAdapter
     from pfc.cache.fixed_interval_policy import FixedIntervalCachePolicy
+    from pfc.cache.safe_map_policy import SafeMapCachePolicy
     from pfc.cache.spectral_dynamic_policy import RawAccumulatedDistancePolicy, SeaCacheSpectralDistancePolicy
 
     JiTRuntimeConfig, load_jit_model, sample_jit = load_jit_runtime_helpers()
@@ -178,6 +194,7 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     boundary_adapter = JiTBoundaryAdapter()
     cache_state: RuntimeCacheState | None = None
     dynamic_policy: RawAccumulatedDistancePolicy | SeaCacheSpectralDistancePolicy | None = None
+    safe_policy: SafeMapCachePolicy | None = None
     if preset.method_type == "cache":
         boundary_set = boundary_adapter.default_boundary_set(model, args.method)
         selected_modules = list(boundary_set.module_names())
@@ -195,6 +212,31 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         resolved["meta"]["selected_modules"] = selected_modules
         resolved["meta"]["cache_units"] = "jit_blocks"
         resolved["meta"]["boundary_set"] = boundary_set.to_dict()
+    elif preset.method_type == "safe_cache":
+        if args.safe_map is None:
+            raise ValueError("--safe-map is required for Safe-BFC generation")
+        boundary_set = boundary_adapter.default_boundary_set(model, args.method)
+        selected_modules = list(boundary_set.module_names())
+        cache_state = RuntimeCacheState(model_name="JiT", enabled=bool(selected_modules))
+        safe_policy = SafeMapCachePolicy.from_path(
+            args.safe_map,
+            enabled=bool(selected_modules),
+            model_name="JiT",
+            max_age=args.safe_max_age,
+            fallback_to_global_branch=args.safe_fallback_global_branch,
+            debug_jsonl_path=args.safe_debug_jsonl,
+        )
+        boundary_adapter.wrap_boundary_set(model, boundary_set, cache_state, safe_policy)
+        resolved["meta"]["selected_modules"] = selected_modules
+        resolved["meta"]["cache_units"] = "jit_safe_whole_backbone"
+        resolved["meta"]["boundary_set"] = boundary_set.to_dict()
+        resolved["meta"]["safe_policy"] = safe_policy.to_dict()
+        resolved["meta"]["safe_lambda"] = safe_policy.safe_lambda
+        resolved["meta"]["safe_quantile"] = safe_policy.quantile
+        resolved["meta"]["safe_max_age"] = safe_policy.max_age
+        resolved["meta"]["lte_floor"] = safe_policy.lte_floor
+        resolved["meta"]["boundary_groups"] = safe_policy.boundary_groups
+        resolved["meta"]["module_to_boundary"] = safe_policy.module_to_boundary
     elif preset.method_type == "dynamic_cache":
         boundary_set = boundary_adapter.default_boundary_set(model, args.method)
         selected_modules = list(boundary_set.module_names())
@@ -293,6 +335,9 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         cache_stats["dynamic_cache_threshold"] = dynamic_policy.threshold
         cache_stats["resolved_dynamic_cache_threshold"] = dynamic_policy.threshold
         resolved["meta"]["dynamic_cache_summary"] = dynamic_policy.summary()
+    if safe_policy is not None:
+        cache_stats["safe_policy"] = safe_policy.summary()
+        resolved["meta"]["safe_policy_summary"] = safe_policy.summary()
     write_generation_meta(paths["latency"], {
         "latency_sec": latency,
         "images_per_sec": generated / latency if latency > 0 else float("inf"),
@@ -335,6 +380,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dynamic-force-first-n-steps", type=int, default=0)
     parser.add_argument("--dynamic-per-branch", action="store_true")
     parser.add_argument("--dynamic-cache-debug-jsonl", type=Path)
+    parser.add_argument("--safe-map", type=Path)
+    parser.add_argument("--safe-map-mode", choices=("quality", "speed", "custom"), default="custom")
+    parser.add_argument("--safe-debug-jsonl", type=Path)
+    parser.add_argument("--safe-max-age", type=int)
+    parser.add_argument("--safe-fallback-global-branch", dest="safe_fallback_global_branch", action="store_true", default=True)
+    parser.add_argument("--no-safe-fallback-global-branch", dest="safe_fallback_global_branch", action="store_false")
     return parser
 
 
@@ -348,13 +399,20 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
         "model_name": preset.model_name,
         "model": "JiT",
         "method_name": preset.method_name,
+        "method_type": preset.method_type,
         "method": _resolved_method_meta(args, preset),
         "num_images": args.num_images,
         "batch_size": args.batch_size,
         "seed": args.seed,
         "eval_steps": preset.eval_steps,
         "reference_steps": preset.reference_steps,
-        "cache_units": "jit_blocks" if preset.method_type == "dynamic_cache" else None,
+        "cache_units": (
+            "jit_safe_whole_backbone"
+            if preset.method_type == "safe_cache"
+            else "jit_blocks"
+            if preset.method_type == "dynamic_cache"
+            else None
+        ),
         "selected_modules": (preset.cache_preset or {}).get("cache_layers") if preset.cache_preset else None,
         "dynamic_cache_type": preset.dynamic_cache_type,
         "dynamic_cache_threshold": dynamic_threshold,
@@ -383,6 +441,14 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
             "dynamic_per_branch": args.dynamic_per_branch,
             "dynamic_cache_debug_jsonl": str(args.dynamic_cache_debug_jsonl.resolve()) if args.dynamic_cache_debug_jsonl else None,
         },
+        "safe_cache": {
+            "safe_map_path": str(args.safe_map.resolve()) if args.safe_map else None,
+            "safe_map_exists": bool(args.safe_map and args.safe_map.is_file()),
+            "safe_map_mode": args.safe_map_mode if preset.method_type == "safe_cache" else None,
+            "safe_max_age_override": args.safe_max_age,
+            "safe_fallback_global_branch": args.safe_fallback_global_branch,
+            "safe_debug_jsonl": str(args.safe_debug_jsonl.resolve()) if args.safe_debug_jsonl else None,
+        },
         **_pixbfc_static_meta(preset.method_type),
     }
     return {"meta": meta, "paths": paths}
@@ -399,6 +465,8 @@ def main() -> int:
         parser.error("--dynamic-force-first-n-steps must be non-negative")
     if args.sea_proxy_downsample < 0:
         parser.error("--sea-proxy-downsample must be non-negative")
+    if args.safe_max_age is not None and args.safe_max_age <= 0:
+        parser.error("--safe-max-age must be positive")
     os.environ.setdefault("CUDA_VISIBLE_DEVICES", os.environ.get("PFC_CUDA_DEVICES", "0"))
     resolved = resolve_config(args)
     if args.dry_run:
@@ -407,6 +475,11 @@ def main() -> int:
             print(f"Missing JiT checkpoint: {args.jit_ckpt_dir / 'checkpoint-last.pth'}")
             return 2
         return 0
+    if get_jit_stage4a_methods()[args.method].method_type == "safe_cache":
+        if args.safe_map is None:
+            parser.error("--safe-map is required for method_type=safe_cache")
+        if not args.safe_map.is_file():
+            raise FileNotFoundError(f"Missing Safe-BFC safe map: {args.safe_map}")
     if not resolved["meta"]["checkpoint_exists"]:
         raise FileNotFoundError(f"Missing JiT checkpoint: {args.jit_ckpt_dir / 'checkpoint-last.pth'}")
     return _run_real(args, resolved)

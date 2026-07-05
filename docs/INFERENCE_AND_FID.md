@@ -85,6 +85,7 @@ bash scripts/print_stage4a_smoke_commands.sh
 bash scripts/print_stage4a_proxy_fid_commands.sh
 bash scripts/print_stage4a_full_50k_commands.sh
 bash scripts/print_stage4a_pixelgen_50k_commands.sh
+bash scripts/print_jit_safe_1000_commands.sh --dry-run
 ```
 
 For a custom plan:
@@ -97,6 +98,12 @@ conda run -n jit python scripts/run_stage4a_full_eval_plan.py \
 ```
 
 Review generated command plans before launching long jobs.
+
+## JiT Safe-BFC Proxy Plan
+
+`docs/JIT_SAFE_BFC_1000.md` describes the JiT-B/16 ImageNet-256 Safe-BFC 1000-image proxy workflow. The flow is calibration, 1000-image generation, FID/IS per method folder, paired PSNR/SSIM/LPIPS/rel_l2 against the same-run `no_cache_50` images, and summary collection.
+
+The 1000-image workflow is proxy-only and should not be interpreted as final 50k FID/IS.
 
 ## Reference Preparation
 

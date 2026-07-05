@@ -15,6 +15,8 @@ def test_stage4a_jit_presets_required_methods() -> None:
         "no_cache_50",
         "bfc_quality_t02_08",
         "bfc_speed_t02_10",
+        "safe_bfc_quality",
+        "safe_bfc_speed",
         "teacache_style",
         "seacache_style",
         "reduced_steps_35",

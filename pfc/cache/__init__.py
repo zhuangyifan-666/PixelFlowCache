@@ -4,6 +4,7 @@ from pfc.cache.cache_state import CacheEntry, CacheKey, CacheStats, RuntimeCache
 from pfc.cache.cached_module import CachedModule
 from pfc.cache.dynamic_policy_adapter import DynamicPolicyAdapter
 from pfc.cache.fixed_interval_policy import FixedIntervalCachePolicy
+from pfc.cache.safe_map_policy import SafeMapCachePolicy
 from pfc.cache.spectral_dynamic_policy import (
     DynamicCacheDecision,
     DynamicCacheStats,
@@ -22,5 +23,6 @@ __all__ = [
     "FixedIntervalCachePolicy",
     "RawAccumulatedDistancePolicy",
     "RuntimeCacheState",
+    "SafeMapCachePolicy",
     "SeaCacheSpectralDistancePolicy",
 ]
