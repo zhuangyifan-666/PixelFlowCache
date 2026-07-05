@@ -24,13 +24,14 @@ def _cmd(lines: list[str]) -> str:
     return " \\\n  ".join(lines)
 
 
-def _device_prefix(prefix: str, gpu: int) -> str:
+def _device_prefix(prefix: str, gpu: int | str) -> str:
     return f"{prefix}={gpu}"
 
 
-def _generation_command(args: argparse.Namespace, method: str, gpu: int, extra: list[str] | None = None) -> str:
+def _parallel_generation_command(args: argparse.Namespace, method: str, extra: list[str] | None = None) -> str:
     lines = [
-        f"{_device_prefix(args.device_prefix, gpu)} conda run -n jit python scripts/run_jit_stage4a_generate.py",
+        "conda run -n jit python scripts/run_jit_parallel_generate.py",
+        "--execute",
         f"--method {method}",
         f"--num-images {args.num_images}",
         f"--batch-size {args.batch_size}",
@@ -38,6 +39,8 @@ def _generation_command(args: argparse.Namespace, method: str, gpu: int, extra: 
         "--run-id ${RUN_ID}",
         "--output-root ${OUT_ROOT}",
         "--jit-ckpt-dir ${JIT_CKPT_DIR}",
+        f"--gpus {args.gpus}",
+        f"--num-shards {args.num_shards}",
     ]
     if extra:
         lines.extend(extra)
@@ -95,6 +98,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fid-stats", default="third_party/JiT/fid_stats/jit_in256_stats.npz")
     parser.add_argument("--real-dir")
     parser.add_argument("--device-prefix", default="CUDA_VISIBLE_DEVICES")
+    parser.add_argument("--gpus", default="0,1,2,3")
+    parser.add_argument("--num-shards", type=int, default=4)
+    parser.add_argument("--print-only", action="store_true", help="Accepted for symmetry; commands are always print-only.")
     parser.add_argument("--dry-run", action="store_true", help="Accepted for symmetry; commands are always print-only.")
     return parser
 
@@ -130,35 +136,105 @@ def main() -> int:
     )
     print()
 
-    print("# Part 2: 1000 image generation commands")
+    print("# Part 2: Safe map density check")
+    print("python scripts/check_safe_map_density.py \\")
+    print("  --safe-map ${CALIB_DIR}/safe_map_quality.json")
+    print()
+    print("python scripts/check_safe_map_density.py \\")
+    print("  --safe-map ${CALIB_DIR}/safe_map_speed.json")
+    print()
+
+    print("# Part 3: forced-safe smoke test command")
+    print(
+        _cmd(
+            [
+                "python scripts/make_forced_safe_map.py",
+                "--out ${CALIB_DIR}/forced_safe_smoke.json",
+                "--jit-blocks 12",
+                "--steps 50",
+                "--max-age 1",
+                "--branches global,cond,uncond",
+                "--solver-stages euler",
+            ]
+        )
+    )
+    print()
+    print(
+        _cmd(
+            [
+                f"{_device_prefix(args.device_prefix, 0)} conda run -n jit python scripts/run_jit_stage4a_generate.py",
+                "--method safe_bfc_speed",
+                "--num-images 16",
+                "--batch-size 8",
+                f"--seed {args.seed}",
+                "--run-id stage5a_jit_forced_safe_smoke16_seed0",
+                "--output-root outputs/stage4a/full_generation",
+                "--jit-ckpt-dir ${JIT_CKPT_DIR}",
+                "--safe-map ${CALIB_DIR}/forced_safe_smoke.json",
+                "--safe-debug-jsonl logs/stage5a/debug/forced_safe_smoke16.jsonl",
+                "--save-png",
+                "--no-save-npz",
+                "--resume",
+                "--allow-empty-safe-map",
+            ]
+        )
+    )
+    print()
+
+    print("# Part 4: calibrated safe smoke test command")
+    print(
+        _cmd(
+            [
+                f"{_device_prefix(args.device_prefix, 0)} conda run -n jit python scripts/run_jit_stage4a_generate.py",
+                "--method safe_bfc_speed",
+                "--num-images 32",
+                "--batch-size 8",
+                f"--seed {args.seed}",
+                "--run-id stage5a_jit_calibrated_safe_smoke32_seed0",
+                "--output-root outputs/stage4a/full_generation",
+                "--jit-ckpt-dir ${JIT_CKPT_DIR}",
+                "--safe-map ${CALIB_DIR}/safe_map_speed.json",
+                "--safe-debug-jsonl logs/stage5a/debug/calibrated_safe_smoke32.jsonl",
+                "--save-png",
+                "--no-save-npz",
+                "--resume",
+            ]
+        )
+    )
+    print()
+
+    print("# Part 5: 1000 image four-card generation commands")
     print(f"export RUN_ID={args.run_id}")
     print(f"export OUT_ROOT={args.out_root}")
     print(f"export JIT_CKPT_DIR={args.jit_ckpt_dir}")
     print(f"export CALIB_DIR={calib_dir}")
     print()
-    print("# Round 1: four single-GPU processes")
-    print(_generation_command(args, "no_cache_50", 0))
+    print("# no_cache_50")
+    print(_parallel_generation_command(args, "no_cache_50"))
     print()
-    print(_generation_command(args, "safe_bfc_quality", 1, ["--safe-map ${CALIB_DIR}/safe_map_quality.json"]))
+    print("# safe_bfc_quality")
+    print(_parallel_generation_command(args, "safe_bfc_quality", ["--safe-map ${CALIB_DIR}/safe_map_quality.json"]))
     print()
-    print(_generation_command(args, "safe_bfc_speed", 2, ["--safe-map ${CALIB_DIR}/safe_map_speed.json"]))
+    print("# safe_bfc_speed")
+    print(_parallel_generation_command(args, "safe_bfc_speed", ["--safe-map ${CALIB_DIR}/safe_map_speed.json"]))
     print()
+    print("# seacache_style")
     print(
-        _generation_command(
+        _parallel_generation_command(
             args,
             "seacache_style",
-            3,
             ["--dynamic-cache-threshold 0.06", "--sea-beta 2.0", "--sea-proxy-downsample 64"],
         )
     )
     print()
-    print("# Round 2")
-    print(_generation_command(args, "reduced_steps_35", 0))
+    print("# reduced_steps_35")
+    print(_parallel_generation_command(args, "reduced_steps_35"))
     print()
-    print(_generation_command(args, "reduced_steps_30", 1))
+    print("# reduced_steps_30")
+    print(_parallel_generation_command(args, "reduced_steps_30"))
     print()
 
-    print("# Part 3: FID/IS evaluation commands")
+    print("# Part 6: FID/IS evaluation commands")
     print(f"export RUN_ID={args.run_id}")
     print(f"export OUT_ROOT={args.out_root}")
     print(f"export FID_STATS={args.fid_stats}")
@@ -172,7 +248,7 @@ def main() -> int:
             print(_fid_command(args, method, use_real_dir=True))
             print()
 
-    print("# Part 4: paired PSNR/SSIM/LPIPS commands")
+    print("# Part 7: paired PSNR/SSIM/LPIPS commands")
     print(f"export RUN_ID={args.run_id}")
     print(f"export OUT_ROOT={args.out_root}")
     print("export REF_DIR=${OUT_ROOT}/jit/${RUN_ID}/no_cache_50/images")
@@ -181,7 +257,7 @@ def main() -> int:
         print(_pair_command(method))
         print()
 
-    print("# Part 5: summary collection command")
+    print("# Part 8: summary collection command")
     print(
         _cmd(
             [

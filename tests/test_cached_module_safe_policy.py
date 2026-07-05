@@ -28,27 +28,45 @@ def _policy() -> SafeMapCachePolicy:
             "branches": ["global"],
             "boundary_groups": {"jit_whole_backbone": ["blocks.0"]},
             "module_to_boundary": {"blocks.0": "jit_whole_backbone"},
-            "max_age": 1,
-            "safe": {"euler": {"global": {"jit_whole_backbone": {"1": {"1": True}}}}},
+            "max_age": 2,
+            "safe": {
+                "euler": {
+                    "global": {
+                        "jit_whole_backbone": {
+                            "1": {"1": True},
+                            "2": {"2": False},
+                        }
+                    }
+                }
+            },
         }
     )
 
 
-def test_cached_module_uses_safe_policy_entry_age() -> None:
+def test_cached_module_safe_policy_refresh_hit_then_unsafe_refresh() -> None:
     module = CountingLinear()
     state = RuntimeCacheState()
-    wrapped = CachedModule(module, "blocks.0", state, _policy())
+    policy = _policy()
+    wrapped = CachedModule(module, "blocks.0", state, policy)
 
     state.set_context(0, 0.0, "cond")
     first = wrapped(torch.zeros(1, 2))
     state.set_context(1, 0.1, "cond")
     second = wrapped(torch.zeros(1, 2))
+    state.set_context(2, 0.2, "cond")
+    third = wrapped(torch.zeros(1, 2))
 
-    assert module.calls == 1
+    assert module.calls == 2
     assert torch.equal(first, second)
-    summary = state.summary()
-    assert summary["misses"] == 1
-    assert summary["hits"] == 1
+    assert not torch.equal(third, first)
+    state_summary = state.summary()
+    assert state_summary["disabled"] == 0
+    assert state_summary["misses"] == 2
+    assert state_summary["hits"] == 1
+    policy_stats = policy.summary()["stats"]
+    assert policy_stats["missing_entry_refresh"] == 1
+    assert policy_stats["safe_reuse_committed"] == 1
+    assert policy_stats["unsafe_refresh"] == 1
 
 
 def test_cached_module_fixed_interval_behavior_is_unchanged() -> None:

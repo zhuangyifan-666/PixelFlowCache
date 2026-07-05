@@ -31,7 +31,7 @@ def prepare_generation_dir(root: Path | str, model_name: str, method_name: str, 
 def save_image_batch_png(
     tensor: Any,
     labels: list[int] | Any,
-    start_idx: int,
+    start_idx: int | list[int] | tuple[int, ...],
     image_dir: Path | str,
     value_range: str = "auto",
 ) -> list[dict[str, Any]]:
@@ -61,9 +61,15 @@ def save_image_batch_png(
     else:
         raise ValueError(f"Unknown value_range: {value_range}")
     labels_list = [int(item) for item in labels]
+    if isinstance(start_idx, (list, tuple)):
+        indices = [int(item) for item in start_idx]
+        if len(indices) != len(labels_list):
+            raise ValueError("Number of explicit image indices must match labels")
+    else:
+        indices = [int(start_idx) + offset for offset in range(len(labels_list))]
     records: list[dict[str, Any]] = []
     for offset, image in enumerate(batch):
-        index = start_idx + offset
+        index = indices[offset]
         array = (image * 255.0).round().to(torch.uint8)
         if array.shape[0] == 1:
             pil_array = array.squeeze(0).numpy()

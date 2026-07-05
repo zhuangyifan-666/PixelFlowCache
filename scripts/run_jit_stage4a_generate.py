@@ -18,12 +18,14 @@ if str(ROOT) not in sys.path:
 
 from pfc.eval.generation_io import (  # noqa: E402
     append_generation_manifest,
+    count_images,
     prepare_generation_dir,
     save_image_batch_png,
     save_npz_samples,
     write_generation_meta,
 )
 from pfc.adapters import JiTBoundaryAdapter  # noqa: E402
+from pfc.cache.safe_map_policy import compute_safe_map_density  # noqa: E402
 from pfc.eval.label_schedule import make_imagenet_class_balanced_labels, save_label_schedule  # noqa: E402
 from pfc.eval.method_presets import get_jit_stage4a_methods, preset_to_json_dict  # noqa: E402
 
@@ -145,6 +147,63 @@ def load_jit_runtime_helpers() -> tuple[Any, Any, Any]:
     return JiTRuntimeConfig, load_jit_model, sample_jit
 
 
+def compute_shard_indices(num_images: int, num_shards: int, shard_index: int, shard_mode: str) -> list[int]:
+    if num_shards <= 0:
+        raise ValueError("num_shards must be positive")
+    if shard_index < 0 or shard_index >= num_shards:
+        raise ValueError("shard_index must satisfy 0 <= shard_index < num_shards")
+    if shard_mode == "strided":
+        return [idx for idx in range(num_images) if idx % num_shards == shard_index]
+    if shard_mode == "contiguous":
+        base, extra = divmod(num_images, num_shards)
+        start = shard_index * base + min(shard_index, extra)
+        end = start + base + (1 if shard_index < extra else 0)
+        return list(range(start, end))
+    raise ValueError(f"Unsupported shard_mode: {shard_mode}")
+
+
+def _chunked(values: list[int], chunk_size: int) -> list[list[int]]:
+    return [values[start : start + chunk_size] for start in range(0, len(values), chunk_size)]
+
+
+def _apply_shard_paths(paths: dict[str, Path], args: argparse.Namespace) -> dict[str, Path]:
+    if args.num_shards <= 1:
+        return paths
+    suffix = args.manifest_suffix or f"_shard{args.shard_index}"
+    base = paths["base_dir"]
+    paths = dict(paths)
+    paths["manifest"] = base / f"manifest{suffix}.jsonl"
+    paths["generation_meta"] = base / f"generation_meta{suffix}.json"
+    paths["latency"] = base / f"latency{suffix}.json"
+    paths["cache_stats"] = base / f"cache_stats{suffix}.json"
+    paths["labels_json_shard"] = base / f"labels{suffix}.json"
+    paths["labels_csv_shard"] = base / f"labels{suffix}.csv"
+    return paths
+
+
+def _write_label_schedule_if_same(labels: list[int], base_dir: Path) -> None:
+    json_path = base_dir / "labels.json"
+    if json_path.exists():
+        existing = json.loads(json_path.read_text(encoding="utf-8")).get("labels", [])
+        if [int(item) for item in existing] != [int(item) for item in labels]:
+            raise RuntimeError(f"Existing label schedule differs: {json_path}")
+        return
+    save_label_schedule(labels, base_dir)
+
+
+def _write_shard_label_schedule(labels: list[int], indices: list[int], paths: dict[str, Path]) -> None:
+    shard_labels = [int(labels[index]) for index in indices]
+    if "labels_json_shard" in paths:
+        save_label_schedule(shard_labels, paths["labels_json_shard"])
+        save_label_schedule(shard_labels, paths["labels_csv_shard"])
+
+
+def _safe_map_density_from_path(path: Path | None) -> dict[str, Any] | None:
+    if path is None or not path.is_file():
+        return None
+    return compute_safe_map_density(json.loads(path.read_text(encoding="utf-8")))
+
+
 def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     import torch
 
@@ -164,7 +223,10 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         raise RuntimeError("CUDA was requested but is not available in this process")
     labels = make_imagenet_class_balanced_labels(args.num_images)
     paths = resolved["paths"]
-    save_label_schedule(labels, paths["base_dir"])
+    shard_indices = compute_shard_indices(args.num_images, args.num_shards, args.shard_index, args.shard_mode)
+    if args.num_shards == 1 or args.shard_index == 0:
+        _write_label_schedule_if_same(labels, paths["base_dir"])
+    _write_shard_label_schedule(labels, shard_indices, paths)
     config = JiTRuntimeConfig(
         jit_dir=args.jit_dir.resolve(),
         ckpt_dir=args.jit_ckpt_dir.resolve(),
@@ -231,6 +293,7 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         resolved["meta"]["cache_units"] = "jit_safe_whole_backbone"
         resolved["meta"]["boundary_set"] = boundary_set.to_dict()
         resolved["meta"]["safe_policy"] = safe_policy.to_dict()
+        resolved["meta"]["safe_map_density"] = safe_policy.safe_density
         resolved["meta"]["safe_lambda"] = safe_policy.safe_lambda
         resolved["meta"]["safe_quantile"] = safe_policy.quantile
         resolved["meta"]["safe_max_age"] = safe_policy.max_age
@@ -272,6 +335,7 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     samples_for_npz = []
     labels_for_npz: list[int] = []
     generated = 0
+    existing_images_skipped = 0
     start = time.perf_counter()
     if device.type == "cuda":
         torch.cuda.empty_cache()
@@ -279,14 +343,14 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         torch.cuda.synchronize(device)
     debug_handle, dynamic_decision_writer = _dynamic_writer(args.dynamic_cache_debug_jsonl)
     try:
-        for batch_start in range(0, args.num_images, args.batch_size):
-            batch_end = min(batch_start + args.batch_size, args.num_images)
-            indices = list(range(batch_start, batch_end))
+        for indices in _chunked(shard_indices, args.batch_size):
             if args.resume and args.save_png:
-                existing = [paths["image_dir"] / f"{index:06d}.png" for index in indices]
-                if all(path.exists() for path in existing):
+                pending_indices = [index for index in indices if not (paths["image_dir"] / f"{index:06d}.png").exists()]
+                existing_images_skipped += len(indices) - len(pending_indices)
+                indices = pending_indices
+                if not indices:
                     continue
-            batch_labels_list = labels[batch_start:batch_end]
+            batch_labels_list = [labels[index] for index in indices]
             batch_labels = torch.tensor(batch_labels_list, device=device, dtype=torch.long)
             noise = _make_noise_for_indices(indices, args.seed, args.img_size, args.noise_scale, device)
             batch_config = replace(
@@ -310,7 +374,7 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
                 )
             output_cpu = output.detach().cpu()
             if args.save_png:
-                records = save_image_batch_png(output_cpu, batch_labels_list, batch_start, paths["image_dir"])
+                records = save_image_batch_png(output_cpu, batch_labels_list, indices, paths["image_dir"])
             else:
                 records = [{"index": index, "label": int(label)} for index, label in zip(indices, batch_labels_list)]
             append_generation_manifest(paths["manifest"], records)
@@ -342,6 +406,15 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         "latency_sec": latency,
         "images_per_sec": generated / latency if latency > 0 else float("inf"),
         "generated_images": generated,
+        "requested_images": args.num_images,
+        "generated_images_this_run": generated,
+        "existing_images_skipped": existing_images_skipped,
+        "total_shard_images": len(shard_indices),
+        "total_images_available": count_images(paths["image_dir"]),
+        "resume": args.resume,
+        "num_shards": args.num_shards,
+        "shard_index": args.shard_index,
+        "shard_mode": args.shard_mode,
         "peak_memory_allocated_bytes": peak_memory,
     })
     write_generation_meta(paths["cache_stats"], cache_stats)
@@ -386,6 +459,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--safe-max-age", type=int)
     parser.add_argument("--safe-fallback-global-branch", dest="safe_fallback_global_branch", action="store_true", default=True)
     parser.add_argument("--no-safe-fallback-global-branch", dest="safe_fallback_global_branch", action="store_false")
+    parser.add_argument("--allow-empty-safe-map", action="store_true")
+    parser.add_argument("--num-shards", type=int, default=1)
+    parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument("--shard-mode", choices=("strided", "contiguous"), default="strided")
+    parser.add_argument("--manifest-suffix")
+    parser.add_argument("--shard-output-meta", action="store_true", default=True)
     return parser
 
 
@@ -394,7 +473,9 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
     run_id = args.run_id or _default_run_id(args.seed, args.num_images)
     args.run_id = run_id
     paths = prepare_generation_dir(args.output_root, preset.model_name, args.method, run_id, create=not args.dry_run)
+    paths = _apply_shard_paths(paths, args)
     dynamic_threshold = _dynamic_threshold(args, preset) if preset.method_type == "dynamic_cache" else None
+    safe_density = _safe_map_density_from_path(args.safe_map) if preset.method_type == "safe_cache" else None
     meta = {
         "model_name": preset.model_name,
         "model": "JiT",
@@ -430,6 +511,11 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
         "img_size": args.img_size,
         "noise_scale": args.noise_scale,
         "run_id": run_id,
+        "num_shards": args.num_shards,
+        "shard_index": args.shard_index,
+        "shard_mode": args.shard_mode,
+        "manifest_suffix": args.manifest_suffix,
+        "shard_indices": compute_shard_indices(args.num_images, args.num_shards, args.shard_index, args.shard_mode),
         "dynamic_cache": {
             "threshold": dynamic_threshold,
             "resolved_dynamic_cache_threshold": dynamic_threshold,
@@ -445,9 +531,11 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
             "safe_map_path": str(args.safe_map.resolve()) if args.safe_map else None,
             "safe_map_exists": bool(args.safe_map and args.safe_map.is_file()),
             "safe_map_mode": args.safe_map_mode if preset.method_type == "safe_cache" else None,
+            "safe_map_density": safe_density,
             "safe_max_age_override": args.safe_max_age,
             "safe_fallback_global_branch": args.safe_fallback_global_branch,
             "safe_debug_jsonl": str(args.safe_debug_jsonl.resolve()) if args.safe_debug_jsonl else None,
+            "allow_empty_safe_map": args.allow_empty_safe_map,
         },
         **_pixbfc_static_meta(preset.method_type),
     }
@@ -461,6 +549,12 @@ def main() -> int:
         parser.error("--num-images must be positive")
     if args.batch_size <= 0:
         parser.error("--batch-size must be positive")
+    if args.num_shards <= 0:
+        parser.error("--num-shards must be positive")
+    if args.shard_index < 0 or args.shard_index >= args.num_shards:
+        parser.error("--shard-index must satisfy 0 <= shard-index < num-shards")
+    if args.num_shards > 1 and args.save_npz:
+        parser.error("--save-npz is not supported with --num-shards > 1")
     if args.dynamic_force_first_n_steps < 0:
         parser.error("--dynamic-force-first-n-steps must be non-negative")
     if args.sea_proxy_downsample < 0:
@@ -471,6 +565,9 @@ def main() -> int:
     resolved = resolve_config(args)
     if args.dry_run:
         _print_dry_run({"meta": resolved["meta"], "paths": resolved["paths"]})
+        safe_density = resolved["meta"].get("safe_cache", {}).get("safe_map_density")
+        if safe_density and safe_density.get("safe_total", 0) > 0 and safe_density.get("safe_true", 0) == 0:
+            print("Warning: Safe map contains zero reusable positions; generation would degenerate to no-cache.")
         if not resolved["meta"]["checkpoint_exists"]:
             print(f"Missing JiT checkpoint: {args.jit_ckpt_dir / 'checkpoint-last.pth'}")
             return 2
@@ -480,6 +577,17 @@ def main() -> int:
             parser.error("--safe-map is required for method_type=safe_cache")
         if not args.safe_map.is_file():
             raise FileNotFoundError(f"Missing Safe-BFC safe map: {args.safe_map}")
+        safe_density = resolved["meta"].get("safe_cache", {}).get("safe_map_density")
+        if (
+            safe_density
+            and safe_density.get("safe_total", 0) > 0
+            and safe_density.get("safe_true", 0) == 0
+            and not args.allow_empty_safe_map
+        ):
+            raise RuntimeError(
+                "Safe map contains zero reusable positions; refusing to run because this will degenerate to no-cache. "
+                "Pass --allow-empty-safe-map to override explicitly."
+            )
     if not resolved["meta"]["checkpoint_exists"]:
         raise FileNotFoundError(f"Missing JiT checkpoint: {args.jit_ckpt_dir / 'checkpoint-last.pth'}")
     return _run_real(args, resolved)

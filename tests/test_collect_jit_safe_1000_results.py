@@ -26,7 +26,16 @@ def test_collect_jit_safe_1000_results_writes_summary(tmp_path: Path) -> None:
     for method, ips in [("no_cache_50", 5.0), ("safe_bfc_quality", 10.0)]:
         run_dir = output_root / "jit" / run_id / method
         _write_json(run_dir / "generation_meta.json", {"num_images": 1000, "eval_steps": 50})
-        _write_json(run_dir / "latency.json", {"latency_sec": 200.0 / ips, "images_per_sec": ips, "generated_images": 1000})
+        _write_json(
+            run_dir / "latency.json",
+            {
+                "latency_sec": 200.0 / ips,
+                "images_per_sec": ips,
+                "generated_images": 1000,
+                "generated_images_this_run": 1000 if method == "no_cache_50" else 900,
+                "existing_images_skipped": 0 if method == "no_cache_50" else 100,
+            },
+        )
         cache_payload = {"hit_rate": 0.0, "total_calls": 0, "hits": 0, "refreshes": 0}
         if method == "safe_bfc_quality":
             cache_payload["safe_policy"] = {
@@ -39,6 +48,7 @@ def test_collect_jit_safe_1000_results_writes_summary(tmp_path: Path) -> None:
     _write_json(
         pair_root / run_id / "jit" / "safe_bfc_quality" / "pair_metrics.json",
         {
+            "pair_count": 1000,
             "summary": {
                 "psnr": {"mean": 30.0},
                 "ssim": {"mean": 0.9},
@@ -74,4 +84,8 @@ def test_collect_jit_safe_1000_results_writes_summary(tmp_path: Path) -> None:
     safe = next(row for row in rows if row["method"] == "safe_bfc_quality")
     assert float(safe["speedup_vs_no_cache"]) == 2.0
     assert safe["safe_reuse"] == "7"
+    assert safe["pair_count"] == "1000"
+    payload = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
+    assert any("resume skipped" in warning for warning in payload["warnings"])
     assert "1000-image proxy results" in (out_dir / "summary.md").read_text(encoding="utf-8")
+    assert "latency/speedup is not comparable" in (out_dir / "summary.md").read_text(encoding="utf-8")

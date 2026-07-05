@@ -37,10 +37,22 @@ class CachedModule(nn.Module):
         cfg_branch = self.cache_state.cfg_branch
         solver_stage = self.cache_state.solver_stage
 
-        if self._should_reuse_entry_aware(step_idx, t, cfg_branch, solver_stage, entry) and entry is not None:
-            if self._entry_matches_current_input(entry.tensor, first_tensor):
+        can_reuse = self._should_reuse_entry_aware(step_idx, t, cfg_branch, solver_stage, entry)
+        entry_matches = False
+        if can_reuse and entry is not None:
+            entry_matches = self._entry_matches_current_input(entry.tensor, first_tensor)
+            if entry_matches:
                 entry.hit_count += 1
                 self.cache_state.mark_hit(self.module_name)
+                if hasattr(self.policy, "mark_reuse_committed"):
+                    self.policy.mark_reuse_committed(
+                        step_idx=step_idx,
+                        t=t,
+                        module_name=self.module_name,
+                        cfg_branch=cfg_branch,
+                        solver_stage=solver_stage,
+                        entry=entry,
+                    )
                 return entry.tensor
 
         output = self.module(*args, **kwargs)
@@ -48,9 +60,20 @@ class CachedModule(nn.Module):
             self.cache_state.mark_disabled(self.module_name)
             return output
 
-        self.cache_state.put(key, output)
+        refreshed_entry = self.cache_state.put(key, output)
         self.cache_state.mark_miss(self.module_name)
         self.cache_state.mark_refresh(self.module_name)
+        if hasattr(self.policy, "mark_refresh_committed"):
+            self.policy.mark_refresh_committed(
+                step_idx=step_idx,
+                t=t,
+                module_name=self.module_name,
+                cfg_branch=cfg_branch,
+                solver_stage=solver_stage,
+                entry=entry,
+                refreshed_entry=refreshed_entry,
+                entry_matches=entry_matches if can_reuse else None,
+            )
         return output
 
     def _cache_active_for_current_context(self) -> bool:

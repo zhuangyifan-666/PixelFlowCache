@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_jit_safe_1000_plan_prints_commands_only() -> None:
     result = subprocess.run(
-        [sys.executable, "scripts/run_jit_safe_1000_eval_plan.py", "--dry-run"],
+        [sys.executable, "scripts/run_jit_safe_1000_eval_plan.py", "--print-only", "--gpus", "0,1,2,3"],
         cwd=ROOT,
         check=True,
         text=True,
@@ -18,6 +18,11 @@ def test_jit_safe_1000_plan_prints_commands_only() -> None:
     )
     stdout = result.stdout
     assert "run_jit_safe_calibration.py" in stdout
+    assert "check_safe_map_density.py" in stdout
+    assert "make_forced_safe_map.py" in stdout
+    assert "run_jit_parallel_generate.py" in stdout
+    assert "--execute" in stdout
+    assert "--gpus 0,1,2,3" in stdout
     for method in (
         "no_cache_50",
         "safe_bfc_quality",

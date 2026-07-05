@@ -72,3 +72,22 @@ def test_pair_metrics_missing_filename_fails_strict(tmp_path: Path) -> None:
         assert "000001.png" in str(exc)
     else:
         raise AssertionError("strict filename mismatch should fail")
+
+
+def test_pair_metrics_rejects_same_realpath(tmp_path: Path) -> None:
+    ref = tmp_path / "same"
+    _write_rgb_png(ref / "000000.png", (0, 0, 0))
+    out = tmp_path / "metrics.json"
+    try:
+        evaluate_pair_metrics(
+            reference_dir=ref,
+            method_dir=ref,
+            out=out,
+            metrics=["psnr"],
+            batch_size=1,
+            device_name="cpu",
+        )
+    except RuntimeError as exc:
+        assert "must be different" in str(exc)
+    else:
+        raise AssertionError("same realpath should fail")

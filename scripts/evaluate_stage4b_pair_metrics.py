@@ -153,6 +153,8 @@ def evaluate_pair_metrics(
 ) -> dict:
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
+    if reference_dir.resolve() == method_dir.resolve():
+        raise RuntimeError(f"reference-dir and method-dir must be different directories: {reference_dir}")
     names = _paired_names(reference_dir, method_dir, strict=strict, limit=limit)
     if not names:
         raise RuntimeError("No paired PNG filenames found.")
@@ -208,6 +210,7 @@ def evaluate_pair_metrics(
         "pairs_per_sec": len(names) / elapsed if elapsed > 0 else float("inf"),
         "summary": summary,
         "per_image_csv": str(per_image_path.resolve()) if save_per_image else None,
+        "pair_count": len(names),
     }
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")

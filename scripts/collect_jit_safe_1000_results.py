@@ -31,6 +31,10 @@ FIELDS = [
     "SSIM",
     "LPIPS",
     "rel_l2",
+    "pair_count",
+    "generated_images",
+    "generated_images_this_run",
+    "existing_images_skipped",
     "cache_hit_rate",
     "cache_total_calls",
     "cache_hits",
@@ -116,12 +120,23 @@ def _row_for_method(args: argparse.Namespace, method: str, warnings: list[str]) 
     fid = _read_json(fid_dir / "fid_results.json", warnings)
     pair = {} if method == "no_cache_50" else _read_json(pair_dir / "pair_metrics.json", warnings)
     safe = _safe_stats(cache_stats)
+    num_images = _get_any(meta, ["num_images"]) or _get_any(latency, ["requested_images", "generated_images"])
+    generated_images = _get_any(latency, ["generated_images", "total_images_available"])
+    generated_this_run = _get_any(latency, ["generated_images_this_run"])
+    skipped = _get_any(latency, ["existing_images_skipped"])
+    if num_images != "" and generated_images != "" and int(generated_images) != int(num_images):
+        warnings.append(f"{method}: generated_images={generated_images} differs from num_images={num_images}")
+    if skipped not in ("", 0, None):
+        warnings.append(f"{method}: resume skipped existing images; latency/speedup is not comparable")
     return {
         "method": method,
-        "num_images": _get_any(meta, ["num_images"]) or _get_any(latency, ["generated_images"]),
+        "num_images": num_images,
         "steps": _get_any(meta, ["eval_steps", "steps"]),
         "latency_sec": _get_any(latency, ["latency_sec"]),
         "images_per_sec": _get_any(latency, ["images_per_sec"]),
+        "generated_images": generated_images,
+        "generated_images_this_run": generated_this_run,
+        "existing_images_skipped": skipped,
         "speedup_vs_no_cache": "",
         "FID": _metric_value(fid, ["fid", "FID", "frechet_inception_distance"]),
         "IS": _metric_value(fid, ["is", "IS", "inception_score", "inception_score_mean"]),
@@ -129,6 +144,7 @@ def _row_for_method(args: argparse.Namespace, method: str, warnings: list[str]) 
         "SSIM": _metric_value(pair, ["ssim", "SSIM"]),
         "LPIPS": _metric_value(pair, ["lpips", "LPIPS"]),
         "rel_l2": _metric_value(pair, ["rel_l2", "relative_l2"]),
+        "pair_count": _get_any(pair, ["pair_count", "num_pairs"]),
         "cache_hit_rate": _get_any(cache_stats, ["hit_rate", "cache_hit_rate"]),
         "cache_total_calls": _get_any(cache_stats, ["total_calls", "cache_total_calls"]),
         "cache_hits": _get_any(cache_stats, ["hits", "cache_hits"]),
@@ -160,6 +176,7 @@ def _write_outputs(out_dir: Path, rows: list[dict[str, Any]], warnings: list[str
         "# JiT Safe-BFC 1000-Image Proxy Summary",
         "",
         "These are 1000-image proxy results and should not be interpreted as final 50k FID/IS.",
+        "If resume skipped existing images, latency/speedup is not comparable.",
         "",
     ]
     if warnings:
@@ -194,10 +211,19 @@ def main() -> int:
     out_dir = Path(args.out_dir) if args.out_dir else Path("logs/stage5a/summary") / args.run_id
     warnings: list[str] = []
     rows = [_row_for_method(args, method, warnings) for method in methods]
-    baseline_ips = _as_float(next((row["images_per_sec"] for row in rows if row["method"] == "no_cache_50"), ""))
+    baseline_latency = _as_float(next((row["latency_sec"] for row in rows if row["method"] == "no_cache_50"), ""))
     for row in rows:
-        ips = _as_float(row.get("images_per_sec"))
-        row["speedup_vs_no_cache"] = ips / baseline_ips if ips is not None and baseline_ips else ""
+        latency = _as_float(row.get("latency_sec"))
+        generated = _as_float(row.get("generated_images"))
+        row["speedup_vs_no_cache"] = (
+            baseline_latency / latency
+            if latency is not None
+            and latency > 0.0
+            and baseline_latency is not None
+            and baseline_latency > 0.0
+            and generated
+            else ""
+        )
     _write_outputs(out_dir, rows, warnings)
     for warning in warnings:
         print(f"warning: {warning}", file=sys.stderr)
