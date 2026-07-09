@@ -8,7 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_run_jit_parallel_generate_print_only_outputs_workers_and_merge() -> None:
+def test_run_jit_parallel_generate_print_only_outputs_workers_and_merge(tmp_path: Path) -> None:
+    safe_map = tmp_path / "safe.json"
     result = subprocess.run(
         [
             sys.executable,
@@ -18,7 +19,7 @@ def test_run_jit_parallel_generate_print_only_outputs_workers_and_merge() -> Non
             "--run-id",
             "unit",
             "--safe-map",
-            "/tmp/safe.json",
+            str(safe_map),
             "--gpus",
             "0,1,2,3",
             "--num-shards",
@@ -37,7 +38,7 @@ def test_run_jit_parallel_generate_print_only_outputs_workers_and_merge() -> Non
         assert f"CUDA_VISIBLE_DEVICES={idx}" in stdout
         assert f"--shard-index {idx}" in stdout
     assert "--num-shards 4" in stdout
-    assert "--safe-map /tmp/safe.json" in stdout
+    assert f"--safe-map {safe_map}" in stdout
     assert "--dynamic-cache-threshold 0.06" in stdout
     assert "merge_jit_parallel_shards.py" in stdout
     assert "torchrun" not in stdout

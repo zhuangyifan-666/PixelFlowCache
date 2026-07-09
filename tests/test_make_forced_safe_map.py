@@ -5,7 +5,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from pfc.cache.safe_map_policy import compute_safe_map_density
+import torch
+
+from pfc.cache.cache_state import CacheEntry
+from pfc.cache.safe_map_policy import SafeMapCachePolicy, compute_safe_map_density
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,5 +43,24 @@ def test_make_forced_safe_map_outputs_all_true_map(tmp_path: Path) -> None:
     assert payload["forced_safe"] is True
     assert set(payload["branches"]) == {"global", "cond", "uncond"}
     assert payload["solver_stages"] == ["euler"]
+    assert payload["boundary_groups"] == {"jit_whole_backbone": ["blocks.0", "blocks.1"]}
+    assert payload["module_to_boundary"] == {
+        "blocks.0": "jit_whole_backbone",
+        "blocks.1": "jit_whole_backbone",
+    }
+    for branch in ("global", "cond", "uncond"):
+        assert payload["safe"]["euler"][branch]["jit_whole_backbone"]["0"]["1"] is True
     assert density["safe_total"] > 0
     assert density["safe_density"] == 1.0
+
+    policy = SafeMapCachePolicy(safe_map=payload)
+    entry = CacheEntry(tensor=torch.ones(1), step_idx=0, t=0.0)
+    for branch in ("global", "cond", "uncond"):
+        assert policy.should_reuse_entry(
+            step_idx=1,
+            t=0.1,
+            module_name="blocks.1",
+            cfg_branch=branch,
+            solver_stage="euler",
+            entry=entry,
+        )

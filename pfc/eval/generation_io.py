@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from datetime import datetime, timezone
+from numbers import Integral
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +33,7 @@ def prepare_generation_dir(root: Path | str, model_name: str, method_name: str, 
 def save_image_batch_png(
     tensor: Any,
     labels: list[int] | Any,
-    start_idx: int | list[int] | tuple[int, ...],
+    start_idx: int | Sequence[int],
     image_dir: Path | str,
     value_range: str = "auto",
 ) -> list[dict[str, Any]]:
@@ -45,6 +47,7 @@ def save_image_batch_png(
         raise ValueError("Expected image tensor with shape [B, C, H, W]")
     if batch.shape[1] not in {1, 3}:
         raise ValueError("Expected 1 or 3 channels")
+    batch_size = int(batch.shape[0])
     if value_range == "auto":
         min_value = float(batch.min().item()) if batch.numel() else 0.0
         max_value = float(batch.max().item()) if batch.numel() else 1.0
@@ -61,12 +64,16 @@ def save_image_batch_png(
     else:
         raise ValueError(f"Unknown value_range: {value_range}")
     labels_list = [int(item) for item in labels]
-    if isinstance(start_idx, (list, tuple)):
+    if len(labels_list) != batch_size:
+        raise ValueError("Number of labels must match batch size")
+    if isinstance(start_idx, Integral):
+        indices = [int(start_idx) + offset for offset in range(batch_size)]
+    elif isinstance(start_idx, Sequence) and not isinstance(start_idx, (str, bytes, bytearray)):
         indices = [int(item) for item in start_idx]
-        if len(indices) != len(labels_list):
-            raise ValueError("Number of explicit image indices must match labels")
+        if len(indices) != batch_size:
+            raise ValueError("Number of explicit image indices must match batch size")
     else:
-        indices = [int(start_idx) + offset for offset in range(len(labels_list))]
+        raise TypeError("start_idx must be an int or a sequence of image indices")
     records: list[dict[str, Any]] = []
     for offset, image in enumerate(batch):
         index = indices[offset]

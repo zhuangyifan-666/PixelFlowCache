@@ -391,10 +391,9 @@ class SafeMapCachePolicy:
             return None
         if isinstance(node, list):
             idx = int(key)
-            if 0 <= idx < len(node):
-                return node[idx]
-            if list_age and 1 <= idx <= len(node):
-                return node[idx - 1]
+            if list_age:
+                return node[idx - 1] if 1 <= idx <= len(node) else None
+            return node[idx] if 0 <= idx < len(node) else None
         return None
 
     def _record_decision(

@@ -86,6 +86,22 @@ def _velocity_from_xpred(x_pred: Any, x: Any, t: Any, t_eps: float) -> Any:
     return (x_pred - x) / (1.0 - t).clamp_min(t_eps)
 
 
+def _prepare_controller(
+    controller: Any | None,
+    *,
+    capture_store: dict[str, Any] | None = None,
+    replay_store: dict[str, Any] | None = None,
+) -> None:
+    if controller is None:
+        return
+    if replay_store is not None:
+        controller.replay_from(replay_store)
+    elif capture_store is not None:
+        controller.capture_into(capture_store)
+    else:
+        controller.disable()
+
+
 def _cfg_velocity(
     *,
     model: Any,
@@ -103,22 +119,20 @@ def _cfg_velocity(
 
     t = t_scalar.expand(z.shape[0], 1, 1, 1)
     flat_t = t.flatten()
-    if controller is not None:
-        controller.capture_into(capture_cond or {})
-        controller.replay_from(replay_cond)
-    x_cond = model.net(z, flat_t, labels)
-    v_cond = _velocity_from_xpred(x_cond, z, t, getattr(model, "t_eps", 5e-2))
+    try:
+        _prepare_controller(controller, capture_store=capture_cond, replay_store=replay_cond)
+        x_cond = model.net(z, flat_t, labels)
+        v_cond = _velocity_from_xpred(x_cond, z, t, getattr(model, "t_eps", 5e-2))
 
-    null_labels = torch.full_like(labels, model.num_classes)
-    if controller is not None:
-        controller.capture_into(capture_uncond or {})
-        controller.replay_from(replay_uncond)
-    x_uncond = model.net(z, flat_t, null_labels)
-    v_uncond = _velocity_from_xpred(x_uncond, z, t, getattr(model, "t_eps", 5e-2))
+        null_labels = torch.full_like(labels, model.num_classes)
+        _prepare_controller(controller, capture_store=capture_uncond, replay_store=replay_uncond)
+        x_uncond = model.net(z, flat_t, null_labels)
+        v_uncond = _velocity_from_xpred(x_uncond, z, t, getattr(model, "t_eps", 5e-2))
 
-    if controller is not None:
-        controller.disable()
-    return v_uncond + cfg_scale * (v_cond - v_uncond)
+        return v_uncond + cfg_scale * (v_cond - v_uncond)
+    finally:
+        if controller is not None:
+            controller.disable()
 
 
 def _build_boundary_groups(num_blocks: int, requested: list[str]) -> dict[str, list[str]]:
