@@ -40,20 +40,32 @@ class CachedModule(nn.Module):
         can_reuse = self._should_reuse_entry_aware(step_idx, t, cfg_branch, solver_stage, entry)
         entry_matches = False
         if can_reuse and entry is not None:
-            entry_matches = self._entry_matches_current_input(entry.tensor, first_tensor)
-            if entry_matches:
-                entry.hit_count += 1
-                self.cache_state.mark_hit(self.module_name)
-                if hasattr(self.policy, "mark_reuse_committed"):
-                    self.policy.mark_reuse_committed(
-                        step_idx=step_idx,
-                        t=t,
-                        module_name=self.module_name,
-                        cfg_branch=cfg_branch,
-                        solver_stage=solver_stage,
-                        entry=entry,
-                    )
-                return entry.tensor
+            reuse_tensor = self._make_reuse_tensor(step_idx, t, cfg_branch, solver_stage, entry, first_tensor)
+            if reuse_tensor is not None:
+                entry_matches = self._reuse_tensor_matches(reuse_tensor, entry.tensor, first_tensor)
+                if entry_matches:
+                    entry.hit_count += 1
+                    self.cache_state.mark_hit(self.module_name)
+                    if hasattr(self.policy, "mark_reuse_committed"):
+                        self.policy.mark_reuse_committed(
+                            step_idx=step_idx,
+                            t=t,
+                            module_name=self.module_name,
+                            cfg_branch=cfg_branch,
+                            solver_stage=solver_stage,
+                            entry=entry,
+                        )
+                    if hasattr(self.policy, "on_reuse_committed"):
+                        self.policy.on_reuse_committed(
+                            step_idx=step_idx,
+                            t=t,
+                            module_name=self.module_name,
+                            cfg_branch=cfg_branch,
+                            solver_stage=solver_stage,
+                            entry=entry,
+                            tensor=reuse_tensor,
+                        )
+                    return reuse_tensor
 
         output = self.module(*args, **kwargs)
         if not torch.is_tensor(output):
@@ -73,6 +85,18 @@ class CachedModule(nn.Module):
                 entry=entry,
                 refreshed_entry=refreshed_entry,
                 entry_matches=entry_matches if can_reuse else None,
+            )
+        if hasattr(self.policy, "on_refresh_committed"):
+            self.policy.on_refresh_committed(
+                step_idx=step_idx,
+                t=t,
+                module_name=self.module_name,
+                cfg_branch=cfg_branch,
+                solver_stage=solver_stage,
+                entry=entry,
+                refreshed_entry=refreshed_entry,
+                entry_matches=entry_matches if can_reuse else None,
+                tensor=output,
             )
         return output
 
@@ -111,6 +135,44 @@ class CachedModule(nn.Module):
         if entry is None:
             return False
         return bool(self.policy.should_reuse(step_idx, t, self.module_name, cfg_branch, solver_stage))
+
+    def _make_reuse_tensor(
+        self,
+        step_idx: int,
+        t: float,
+        cfg_branch: str,
+        solver_stage: str,
+        entry: Any,
+        first_tensor: torch.Tensor | None,
+    ) -> torch.Tensor | None:
+        if hasattr(self.policy, "make_reuse_tensor"):
+            candidate = self.policy.make_reuse_tensor(
+                step_idx=step_idx,
+                t=t,
+                module_name=self.module_name,
+                cfg_branch=cfg_branch,
+                solver_stage=solver_stage,
+                entry=entry,
+                current_input=first_tensor,
+            )
+            return candidate if torch.is_tensor(candidate) else None
+        return entry.tensor
+
+    @staticmethod
+    def _reuse_tensor_matches(
+        reuse_tensor: torch.Tensor,
+        cached_tensor: torch.Tensor,
+        current: torch.Tensor | None,
+    ) -> bool:
+        if reuse_tensor.shape != cached_tensor.shape:
+            return False
+        if current is not None and reuse_tensor.device != current.device:
+            return False
+        if reuse_tensor.device != cached_tensor.device:
+            return False
+        if current is not None and reuse_tensor.ndim > 0 and current.ndim > 0 and reuse_tensor.shape[0] != current.shape[0]:
+            return False
+        return True
 
     @staticmethod
     def _first_tensor(args: tuple[Any, ...], kwargs: dict[str, Any]) -> torch.Tensor | None:

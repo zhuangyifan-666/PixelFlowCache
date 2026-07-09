@@ -10,6 +10,7 @@ METHODS = [
     "safe_bfc_quality",
     "safe_bfc_speed",
     "seacache_style",
+    "taylorseer_style",
     "reduced_steps_35",
     "reduced_steps_30",
 ]
@@ -44,7 +45,9 @@ def _parallel_generation_command(args: argparse.Namespace, method: str, extra: l
     ]
     if extra:
         lines.extend(extra)
-    lines.extend(["--save-png", "--no-save-npz", "--resume"])
+    lines.extend(["--save-png", "--no-save-npz"])
+    if args.resume:
+        lines.append("--resume")
     return _cmd(lines)
 
 
@@ -100,6 +103,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device-prefix", default="CUDA_VISIBLE_DEVICES")
     parser.add_argument("--gpus", default="0,1,2,3")
     parser.add_argument("--num-shards", type=int, default=4)
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        default=False,
+        help="Add --resume to generated generation commands. Disabled by default for comparable timing.",
+    )
     parser.add_argument("--print-only", action="store_true", help="Accepted for symmetry; commands are always print-only.")
     parser.add_argument("--dry-run", action="store_true", help="Accepted for symmetry; commands are always print-only.")
     return parser
@@ -174,7 +183,7 @@ def main() -> int:
                 "--safe-debug-jsonl logs/stage5a/debug/forced_safe_smoke16.jsonl",
                 "--save-png",
                 "--no-save-npz",
-                "--resume",
+                *(["--resume"] if args.resume else []),
                 "--allow-empty-safe-map",
             ]
         )
@@ -197,7 +206,7 @@ def main() -> int:
                 "--safe-debug-jsonl logs/stage5a/debug/calibrated_safe_smoke32.jsonl",
                 "--save-png",
                 "--no-save-npz",
-                "--resume",
+                *(["--resume"] if args.resume else []),
             ]
         )
     )
@@ -208,6 +217,8 @@ def main() -> int:
     print(f"export OUT_ROOT={args.out_root}")
     print(f"export JIT_CKPT_DIR={args.jit_ckpt_dir}")
     print(f"export CALIB_DIR={calib_dir}")
+    print()
+    print("# Recommended for formal timing: rm -rf ${OUT_ROOT}/jit/${RUN_ID}")
     print()
     print("# no_cache_50")
     print(_parallel_generation_command(args, "no_cache_50"))
@@ -224,6 +235,15 @@ def main() -> int:
             args,
             "seacache_style",
             ["--dynamic-cache-threshold 0.06", "--sea-beta 2.0", "--sea-proxy-downsample 64"],
+        )
+    )
+    print()
+    print("# taylorseer_style")
+    print(
+        _parallel_generation_command(
+            args,
+            "taylorseer_style",
+            ["--taylorseer-interval 4", "--taylorseer-max-order 4"],
         )
     )
     print()

@@ -19,6 +19,8 @@ def test_stage4a_jit_presets_required_methods() -> None:
         "safe_bfc_speed",
         "teacache_style",
         "seacache_style",
+        "taylorseer_style",
+        "taylorseer_quality_i3_o3",
         "reduced_steps_35",
         "reduced_steps_30",
     }

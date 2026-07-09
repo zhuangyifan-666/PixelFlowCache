@@ -66,6 +66,46 @@ def _dynamic_threshold(args: argparse.Namespace, preset: Any) -> float:
     return float(value)
 
 
+def _taylorseer_interval(args: argparse.Namespace, preset: Any) -> int:
+    return int(args.taylorseer_interval or preset.taylorseer_interval or 4)
+
+
+def _taylorseer_max_order(args: argparse.Namespace, preset: Any) -> int:
+    return int(args.taylorseer_max_order or preset.taylorseer_max_order or 4)
+
+
+def _taylorseer_refresh_first_n_steps(args: argparse.Namespace, preset: Any) -> int:
+    value = args.taylorseer_refresh_first_n_steps
+    if value is None:
+        value = preset.taylorseer_refresh_first_n_steps
+    if value is None:
+        value = 1
+    return int(value)
+
+
+def _taylorseer_refresh_last_n_steps(args: argparse.Namespace, preset: Any) -> int:
+    value = args.taylorseer_refresh_last_n_steps
+    if value is None:
+        value = preset.taylorseer_refresh_last_n_steps
+    if value is None:
+        value = 0
+    return int(value)
+
+
+def _taylorseer_config(args: argparse.Namespace, preset: Any) -> dict[str, Any]:
+    return {
+        "baseline_name": "TaylorSeer-style",
+        "official_reference": "TaylorSeer adapted baseline, not official reproduction",
+        "taylorseer_interval": _taylorseer_interval(args, preset),
+        "taylorseer_max_order": _taylorseer_max_order(args, preset),
+        "taylorseer_min_history": args.taylorseer_min_history,
+        "taylorseer_refresh_first_n_steps": _taylorseer_refresh_first_n_steps(args, preset),
+        "taylorseer_refresh_last_n_steps": _taylorseer_refresh_last_n_steps(args, preset),
+        "taylorseer_clone_forecast": args.taylorseer_clone_forecast,
+        "taylorseer_debug_jsonl": str(args.taylorseer_debug_jsonl.resolve()) if args.taylorseer_debug_jsonl else None,
+    }
+
+
 def _resolved_method_meta(args: argparse.Namespace, preset: Any) -> dict[str, Any]:
     method = preset_to_json_dict(preset)
     if preset.method_type == "dynamic_cache":
@@ -93,13 +133,22 @@ def _resolved_method_meta(args: argparse.Namespace, preset: Any) -> dict[str, An
                 "safe_fallback_global_branch": args.safe_fallback_global_branch,
             }
         )
+    elif preset.method_type == "forecast_cache":
+        cache_preset = preset.cache_preset or {}
+        method.update(
+            {
+                "cache_units": cache_preset.get("cache_units", "jit_blocks"),
+                "selected_modules": cache_preset.get("cache_layers", "all"),
+                **_taylorseer_config(args, preset),
+            }
+        )
     return method
 
 
 def _pixbfc_static_meta(method_type: str) -> dict[str, Any]:
     adapter = JiTBoundaryAdapter()
     boundary_set = None
-    if method_type in {"cache", "safe_cache", "dynamic_cache"}:
+    if method_type in {"cache", "safe_cache", "dynamic_cache", "forecast_cache"}:
         boundary_set = {
             "name": "jit_whole_backbone",
             "description": "Resolved to concrete JiT block names after model construction.",
@@ -212,6 +261,7 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     from pfc.cache.fixed_interval_policy import FixedIntervalCachePolicy
     from pfc.cache.safe_map_policy import SafeMapCachePolicy
     from pfc.cache.spectral_dynamic_policy import RawAccumulatedDistancePolicy, SeaCacheSpectralDistancePolicy
+    from pfc.cache.taylorseer_policy import TaylorSeerCachePolicy
 
     JiTRuntimeConfig, load_jit_model, sample_jit = load_jit_runtime_helpers()
 
@@ -257,6 +307,7 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     cache_state: RuntimeCacheState | None = None
     dynamic_policy: RawAccumulatedDistancePolicy | SeaCacheSpectralDistancePolicy | None = None
     safe_policy: SafeMapCachePolicy | None = None
+    taylorseer_policy: TaylorSeerCachePolicy | None = None
     if preset.method_type == "cache":
         boundary_set = boundary_adapter.default_boundary_set(model, args.method)
         selected_modules = list(boundary_set.module_names())
@@ -300,6 +351,33 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         resolved["meta"]["lte_floor"] = safe_policy.lte_floor
         resolved["meta"]["boundary_groups"] = safe_policy.boundary_groups
         resolved["meta"]["module_to_boundary"] = safe_policy.module_to_boundary
+    elif preset.method_type == "forecast_cache":
+        boundary_set = boundary_adapter.default_boundary_set(model, args.method)
+        selected_modules = list(boundary_set.module_names())
+        cache_state = RuntimeCacheState(model_name="JiT", enabled=bool(selected_modules))
+        taylorseer_policy = TaylorSeerCachePolicy(
+            enabled=bool(selected_modules),
+            model_name="JiT",
+            cache_modules=set(selected_modules),
+            interval=_taylorseer_interval(args, preset),
+            max_order=_taylorseer_max_order(args, preset),
+            min_history=args.taylorseer_min_history,
+            solver_stages={"euler"},
+            branches={"cond", "uncond", "global"},
+            fallback_to_global_branch=True,
+            refresh_first_n_steps=_taylorseer_refresh_first_n_steps(args, preset),
+            refresh_last_n_steps=_taylorseer_refresh_last_n_steps(args, preset),
+            clone_forecast=args.taylorseer_clone_forecast,
+            debug_jsonl_path=args.taylorseer_debug_jsonl,
+            total_steps=preset.eval_steps,
+        )
+        boundary_adapter.wrap_boundary_set(model, boundary_set, cache_state, taylorseer_policy)
+        resolved["meta"]["selected_modules"] = selected_modules
+        resolved["meta"]["cache_units"] = "jit_blocks"
+        resolved["meta"]["baseline_name"] = "TaylorSeer-style"
+        resolved["meta"]["boundary_set"] = boundary_set.to_dict()
+        resolved["meta"]["taylorseer_policy"] = taylorseer_policy.to_dict()
+        resolved["meta"].update(_taylorseer_config(args, preset))
     elif preset.method_type == "dynamic_cache":
         boundary_set = boundary_adapter.default_boundary_set(model, args.method)
         selected_modules = list(boundary_set.module_names())
@@ -361,6 +439,8 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
             )
             if cache_state is not None:
                 cache_state.clear_entries()
+            if taylorseer_policy is not None:
+                taylorseer_policy.clear_batch()
             with torch.no_grad():
                 output, _records = sample_jit(
                     model,
@@ -402,6 +482,9 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     if safe_policy is not None:
         cache_stats["safe_policy"] = safe_policy.summary()
         resolved["meta"]["safe_policy_summary"] = safe_policy.summary()
+    if taylorseer_policy is not None:
+        cache_stats["taylorseer_policy"] = taylorseer_policy.summary()
+        resolved["meta"]["taylorseer_policy_summary"] = taylorseer_policy.summary()
     write_generation_meta(paths["latency"], {
         "latency_sec": latency,
         "images_per_sec": generated / latency if latency > 0 else float("inf"),
@@ -453,6 +536,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dynamic-force-first-n-steps", type=int, default=0)
     parser.add_argument("--dynamic-per-branch", action="store_true")
     parser.add_argument("--dynamic-cache-debug-jsonl", type=Path)
+    parser.add_argument("--taylorseer-interval", type=int)
+    parser.add_argument("--taylorseer-max-order", type=int)
+    parser.add_argument("--taylorseer-refresh-first-n-steps", type=int, default=1)
+    parser.add_argument("--taylorseer-refresh-last-n-steps", type=int, default=0)
+    parser.add_argument("--taylorseer-debug-jsonl", type=Path)
+    parser.add_argument("--taylorseer-clone-forecast", action="store_true")
+    parser.add_argument("--taylorseer-min-history", type=int, default=2)
     parser.add_argument("--safe-map", type=Path)
     parser.add_argument("--safe-map-mode", choices=("quality", "speed", "custom"), default="custom")
     parser.add_argument("--safe-debug-jsonl", type=Path)
@@ -475,6 +565,7 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
     paths = prepare_generation_dir(args.output_root, preset.model_name, args.method, run_id, create=not args.dry_run)
     paths = _apply_shard_paths(paths, args)
     dynamic_threshold = _dynamic_threshold(args, preset) if preset.method_type == "dynamic_cache" else None
+    taylorseer_settings = _taylorseer_config(args, preset) if preset.method_type == "forecast_cache" else None
     safe_density = _safe_map_density_from_path(args.safe_map) if preset.method_type == "safe_cache" else None
     meta = {
         "model_name": preset.model_name,
@@ -491,7 +582,7 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
             "jit_safe_whole_backbone"
             if preset.method_type == "safe_cache"
             else "jit_blocks"
-            if preset.method_type == "dynamic_cache"
+            if preset.method_type in {"dynamic_cache", "forecast_cache"}
             else None
         ),
         "selected_modules": (preset.cache_preset or {}).get("cache_layers") if preset.cache_preset else None,
@@ -537,6 +628,7 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
             "safe_debug_jsonl": str(args.safe_debug_jsonl.resolve()) if args.safe_debug_jsonl else None,
             "allow_empty_safe_map": args.allow_empty_safe_map,
         },
+        "taylorseer_cache": taylorseer_settings,
         **_pixbfc_static_meta(preset.method_type),
     }
     return {"meta": meta, "paths": paths}
@@ -561,6 +653,16 @@ def main() -> int:
         parser.error("--sea-proxy-downsample must be non-negative")
     if args.safe_max_age is not None and args.safe_max_age <= 0:
         parser.error("--safe-max-age must be positive")
+    if args.taylorseer_interval is not None and args.taylorseer_interval <= 0:
+        parser.error("--taylorseer-interval must be positive")
+    if args.taylorseer_max_order is not None and args.taylorseer_max_order < 0:
+        parser.error("--taylorseer-max-order must be non-negative")
+    if args.taylorseer_min_history <= 0:
+        parser.error("--taylorseer-min-history must be positive")
+    if args.taylorseer_refresh_first_n_steps is not None and args.taylorseer_refresh_first_n_steps < 0:
+        parser.error("--taylorseer-refresh-first-n-steps must be non-negative")
+    if args.taylorseer_refresh_last_n_steps is not None and args.taylorseer_refresh_last_n_steps < 0:
+        parser.error("--taylorseer-refresh-last-n-steps must be non-negative")
     os.environ.setdefault("CUDA_VISIBLE_DEVICES", os.environ.get("PFC_CUDA_DEVICES", "0"))
     resolved = resolve_config(args)
     if args.dry_run:
@@ -570,7 +672,6 @@ def main() -> int:
             print("Warning: Safe map contains zero reusable positions; generation would degenerate to no-cache.")
         if not resolved["meta"]["checkpoint_exists"]:
             print(f"Missing JiT checkpoint: {args.jit_ckpt_dir / 'checkpoint-last.pth'}")
-            return 2
         return 0
     if get_jit_stage4a_methods()[args.method].method_type == "safe_cache":
         if args.safe_map is None:

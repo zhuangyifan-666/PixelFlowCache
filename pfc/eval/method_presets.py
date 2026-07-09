@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 
-MethodType = Literal["reference", "cache", "safe_cache", "dynamic_cache", "reduced_steps"]
+MethodType = Literal["reference", "cache", "safe_cache", "dynamic_cache", "forecast_cache", "reduced_steps"]
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,10 @@ class GenerationMethodPreset:
     dynamic_cache_threshold: float | None = None
     sea_beta: float = 2.0
     sea_proxy_downsample: int = 64
+    taylorseer_interval: int | None = None
+    taylorseer_max_order: int | None = None
+    taylorseer_refresh_first_n_steps: int | None = None
+    taylorseer_refresh_last_n_steps: int | None = None
     description: str = ""
 
 
@@ -99,6 +103,46 @@ def get_jit_stage4a_methods() -> dict[str, GenerationMethodPreset]:
             description=(
                 "Safe-BFC speed preset: calibrated solver-perturbation safe map, "
                 "no manual timestep window, no fixed interval."
+            ),
+        ),
+        GenerationMethodPreset(
+            model_name="JiT",
+            method_name="taylorseer_style",
+            method_type="forecast_cache",
+            reference_steps=50,
+            eval_steps=50,
+            cache_preset={"cache_layers": "all", "cache_units": "jit_blocks"},
+            deco_cache_units=None,
+            active_t_min=None,
+            active_t_max=None,
+            cache_interval=None,
+            taylorseer_interval=4,
+            taylorseer_max_order=4,
+            taylorseer_refresh_first_n_steps=1,
+            taylorseer_refresh_last_n_steps=0,
+            description=(
+                "Adapted TaylorSeer-style feature forecasting baseline using polynomial "
+                "extrapolation over cached JiT block outputs."
+            ),
+        ),
+        GenerationMethodPreset(
+            model_name="JiT",
+            method_name="taylorseer_quality_i3_o3",
+            method_type="forecast_cache",
+            reference_steps=50,
+            eval_steps=50,
+            cache_preset={"cache_layers": "all", "cache_units": "jit_blocks"},
+            deco_cache_units=None,
+            active_t_min=None,
+            active_t_max=None,
+            cache_interval=None,
+            taylorseer_interval=3,
+            taylorseer_max_order=3,
+            taylorseer_refresh_first_n_steps=1,
+            taylorseer_refresh_last_n_steps=0,
+            description=(
+                "Adapted high-quality TaylorSeer-DiT-style configuration using interval 3 "
+                "and max order 3."
             ),
         ),
         GenerationMethodPreset(

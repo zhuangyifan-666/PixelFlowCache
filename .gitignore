@@ -15,6 +15,10 @@ datasets/
 *.ckpt
 *.safetensors
 __pycache__/
+*.pyc
 .pytest_cache/
 .mypy_cache/
 wandb/
+tmp_forced_safe*.json
+tmp_*.json
+*.png

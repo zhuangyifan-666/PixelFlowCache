@@ -15,6 +15,7 @@ DEFAULT_METHODS = [
     "safe_bfc_quality",
     "safe_bfc_speed",
     "seacache_style",
+    "taylorseer_style",
     "reduced_steps_35",
     "reduced_steps_30",
 ]
@@ -45,6 +46,12 @@ FIELDS = [
     "mean_age",
     "safe_lambda",
     "safe_quantile",
+    "forecast_decisions",
+    "forecast_committed",
+    "forecast_failures",
+    "mean_effective_order",
+    "taylorseer_interval",
+    "taylorseer_max_order",
 ]
 
 
@@ -110,6 +117,22 @@ def _safe_stats(cache_stats: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _taylorseer_stats(cache_stats: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
+    policy = cache_stats.get("taylorseer_policy") if isinstance(cache_stats, dict) else {}
+    if not isinstance(policy, dict):
+        policy = {}
+    stats = policy.get("stats") if isinstance(policy.get("stats"), dict) else {}
+    config = policy.get("config") if isinstance(policy.get("config"), dict) else {}
+    return {
+        "forecast_decisions": stats.get("forecast_decisions", ""),
+        "forecast_committed": stats.get("forecast_committed", ""),
+        "forecast_failures": stats.get("forecast_failures", ""),
+        "mean_effective_order": stats.get("mean_effective_order", ""),
+        "taylorseer_interval": config.get("interval", _get_any(meta, ["taylorseer_interval", "method.taylorseer_interval"])),
+        "taylorseer_max_order": config.get("max_order", _get_any(meta, ["taylorseer_max_order", "method.taylorseer_max_order"])),
+    }
+
+
 def _row_for_method(args: argparse.Namespace, method: str, warnings: list[str]) -> dict[str, Any]:
     run_dir = Path(args.output_root) / "jit" / args.run_id / method
     fid_dir = Path(args.fid_root) / args.run_id / "jit" / method
@@ -120,6 +143,7 @@ def _row_for_method(args: argparse.Namespace, method: str, warnings: list[str]) 
     fid = _read_json(fid_dir / "fid_results.json", warnings)
     pair = {} if method == "no_cache_50" else _read_json(pair_dir / "pair_metrics.json", warnings)
     safe = _safe_stats(cache_stats)
+    taylorseer = _taylorseer_stats(cache_stats, meta)
     num_images = _get_any(meta, ["num_images"]) or _get_any(latency, ["requested_images", "generated_images"])
     generated_images = _get_any(latency, ["generated_images", "total_images_available"])
     generated_this_run = _get_any(latency, ["generated_images_this_run"])
@@ -150,6 +174,7 @@ def _row_for_method(args: argparse.Namespace, method: str, warnings: list[str]) 
         "cache_hits": _get_any(cache_stats, ["hits", "cache_hits"]),
         "cache_refreshes": _get_any(cache_stats, ["refreshes", "cache_refreshes"]),
         **safe,
+        **taylorseer,
     }
 
 
@@ -183,12 +208,12 @@ def _write_outputs(out_dir: Path, rows: list[dict[str, Any]], warnings: list[str
         lines.append("## Warnings")
         lines.extend(f"- {warning}" for warning in warnings)
         lines.append("")
-    lines.append("| method | FID | IS | PSNR | SSIM | LPIPS | images/sec | speedup | cache hit | safe reuse |")
-    lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+    lines.append("| method | FID | IS | PSNR | SSIM | LPIPS | images/sec | speedup | cache hit | safe reuse | forecast committed | mean order |")
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
     for row in rows:
         lines.append(
             "| {method} | {FID} | {IS} | {PSNR} | {SSIM} | {LPIPS} | {images_per_sec} | "
-            "{speedup_vs_no_cache} | {cache_hit_rate} | {safe_reuse} |".format(**row)
+            "{speedup_vs_no_cache} | {cache_hit_rate} | {safe_reuse} | {forecast_committed} | {mean_effective_order} |".format(**row)
         )
     lines.append("")
     (out_dir / "summary.md").write_text("\n".join(lines), encoding="utf-8")

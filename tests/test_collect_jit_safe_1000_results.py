@@ -21,9 +21,9 @@ def test_collect_jit_safe_1000_results_writes_summary(tmp_path: Path) -> None:
     fid_root = tmp_path / "fid"
     pair_root = tmp_path / "pair"
     out_dir = tmp_path / "summary"
-    methods = ["no_cache_50", "safe_bfc_quality"]
+    methods = ["no_cache_50", "safe_bfc_quality", "taylorseer_style"]
 
-    for method, ips in [("no_cache_50", 5.0), ("safe_bfc_quality", 10.0)]:
+    for method, ips in [("no_cache_50", 5.0), ("safe_bfc_quality", 10.0), ("taylorseer_style", 8.0)]:
         run_dir = output_root / "jit" / run_id / method
         _write_json(run_dir / "generation_meta.json", {"num_images": 1000, "eval_steps": 50})
         _write_json(
@@ -41,6 +41,16 @@ def test_collect_jit_safe_1000_results_writes_summary(tmp_path: Path) -> None:
             cache_payload["safe_policy"] = {
                 "config": {"max_age": 2, "safe_lambda": 0.5, "quantile": 0.95},
                 "stats": {"safe_reuse": 7, "unsafe_refresh": 3, "mean_age": 1.5},
+            }
+        if method == "taylorseer_style":
+            cache_payload["taylorseer_policy"] = {
+                "config": {"interval": 4, "max_order": 4},
+                "stats": {
+                    "forecast_decisions": 11,
+                    "forecast_committed": 10,
+                    "forecast_failures": 1,
+                    "mean_effective_order": 3.5,
+                },
             }
         _write_json(run_dir / "cache_stats.json", cache_payload)
         _write_json(fid_root / run_id / "jit" / method / "fid_results.json", {"fid": 12.3, "is": 45.6})
@@ -85,7 +95,16 @@ def test_collect_jit_safe_1000_results_writes_summary(tmp_path: Path) -> None:
     assert float(safe["speedup_vs_no_cache"]) == 2.0
     assert safe["safe_reuse"] == "7"
     assert safe["pair_count"] == "1000"
+    taylor = next(row for row in rows if row["method"] == "taylorseer_style")
+    assert taylor["forecast_decisions"] == "11"
+    assert taylor["forecast_committed"] == "10"
+    assert taylor["forecast_failures"] == "1"
+    assert taylor["mean_effective_order"] == "3.5"
+    assert taylor["taylorseer_interval"] == "4"
+    assert taylor["taylorseer_max_order"] == "4"
     payload = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
     assert any("resume skipped" in warning for warning in payload["warnings"])
-    assert "1000-image proxy results" in (out_dir / "summary.md").read_text(encoding="utf-8")
-    assert "latency/speedup is not comparable" in (out_dir / "summary.md").read_text(encoding="utf-8")
+    summary_md = (out_dir / "summary.md").read_text(encoding="utf-8")
+    assert "1000-image proxy results" in summary_md
+    assert "forecast committed" in summary_md
+    assert "latency/speedup is not comparable" in summary_md

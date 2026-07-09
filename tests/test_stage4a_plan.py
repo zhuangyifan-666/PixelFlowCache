@@ -60,7 +60,7 @@ def test_stage4a_jit_dry_run_serializes_paths(tmp_path: Path) -> None:
         text=True,
         capture_output=True,
     )
-    assert result.returncode == 2
+    assert result.returncode == 0
     assert "checkpoint_exists" in result.stdout
     assert "Missing JiT checkpoint" in result.stdout
     assert "TypeError" not in result.stderr

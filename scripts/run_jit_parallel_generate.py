@@ -53,6 +53,20 @@ def _base_worker_command(args: argparse.Namespace, shard_index: int, python_bin:
         command.append("--allow-empty-safe-map")
     if args.dynamic_cache_threshold is not None:
         command.extend(["--dynamic-cache-threshold", str(args.dynamic_cache_threshold)])
+    if args.taylorseer_interval is not None:
+        command.extend(["--taylorseer-interval", str(args.taylorseer_interval)])
+    if args.taylorseer_max_order is not None:
+        command.extend(["--taylorseer-max-order", str(args.taylorseer_max_order)])
+    if args.taylorseer_refresh_first_n_steps is not None:
+        command.extend(["--taylorseer-refresh-first-n-steps", str(args.taylorseer_refresh_first_n_steps)])
+    if args.taylorseer_refresh_last_n_steps is not None:
+        command.extend(["--taylorseer-refresh-last-n-steps", str(args.taylorseer_refresh_last_n_steps)])
+    if args.taylorseer_debug_jsonl is not None:
+        command.extend(["--taylorseer-debug-jsonl", str(args.taylorseer_debug_jsonl)])
+    if args.taylorseer_min_history is not None:
+        command.extend(["--taylorseer-min-history", str(args.taylorseer_min_history)])
+    if args.taylorseer_clone_forecast:
+        command.append("--taylorseer-clone-forecast")
     command.extend(["--sea-beta", str(args.sea_beta), "--sea-proxy-downsample", str(args.sea_proxy_downsample)])
     command.append("--save-png" if args.save_png else "--no-save-png")
     command.append("--save-npz" if args.save_npz else "--no-save-npz")
@@ -95,6 +109,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--shard-mode", choices=("strided", "contiguous"), default="strided")
     parser.add_argument("--safe-map", type=Path)
     parser.add_argument("--dynamic-cache-threshold", type=float)
+    parser.add_argument("--taylorseer-interval", type=int)
+    parser.add_argument("--taylorseer-max-order", type=int)
+    parser.add_argument("--taylorseer-debug-jsonl", type=Path)
+    parser.add_argument("--taylorseer-refresh-first-n-steps", type=int)
+    parser.add_argument("--taylorseer-refresh-last-n-steps", type=int)
+    parser.add_argument("--taylorseer-min-history", type=int)
+    parser.add_argument("--taylorseer-clone-forecast", action="store_true")
     parser.add_argument("--sea-beta", type=float, default=2.0)
     parser.add_argument("--sea-proxy-downsample", type=int, default=64)
     parser.add_argument("--save-png", dest="save_png", action="store_true", default=True)
@@ -122,6 +143,16 @@ def main() -> int:
         parser.error("--gpus count must equal --num-shards")
     if args.save_npz and args.num_shards > 1:
         parser.error("--save-npz is not supported with --num-shards > 1")
+    if args.taylorseer_interval is not None and args.taylorseer_interval <= 0:
+        parser.error("--taylorseer-interval must be positive")
+    if args.taylorseer_max_order is not None and args.taylorseer_max_order < 0:
+        parser.error("--taylorseer-max-order must be non-negative")
+    if args.taylorseer_refresh_first_n_steps is not None and args.taylorseer_refresh_first_n_steps < 0:
+        parser.error("--taylorseer-refresh-first-n-steps must be non-negative")
+    if args.taylorseer_refresh_last_n_steps is not None and args.taylorseer_refresh_last_n_steps < 0:
+        parser.error("--taylorseer-refresh-last-n-steps must be non-negative")
+    if args.taylorseer_min_history is not None and args.taylorseer_min_history <= 0:
+        parser.error("--taylorseer-min-history must be positive")
 
     worker_commands = [_base_worker_command(args, idx, python_bin="python") for idx in range(args.num_shards)]
     merge_command = _merge_command(args, python_bin="python")

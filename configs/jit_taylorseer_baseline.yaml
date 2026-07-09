@@ -1,0 +1,16 @@
+# Adapted TaylorSeer-style JiT baseline for PixelFlowCache.
+# This is not an official TaylorSeer reproduction.
+method: taylorseer_style
+model: JiT
+cache_units: jit_blocks
+taylorseer:
+  interval: 4
+  max_order: 4
+  min_history: 2
+  refresh_first_n_steps: 1
+  refresh_last_n_steps: 0
+  clone_forecast: false
+quality_variant:
+  method: taylorseer_quality_i3_o3
+  interval: 3
+  max_order: 3

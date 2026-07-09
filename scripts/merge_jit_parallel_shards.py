@@ -98,6 +98,39 @@ def _merge_safe_policy(shards: list[dict[str, Any]]) -> dict[str, Any] | None:
     return {"policy": policies[0].get("policy"), "config": policies[0].get("config"), "stats": dict(merged_stats)}
 
 
+def _merge_taylorseer_policy(shards: list[dict[str, Any]]) -> dict[str, Any] | None:
+    policies = [shard.get("taylorseer_policy") for shard in shards if isinstance(shard.get("taylorseer_policy"), dict)]
+    if not policies:
+        return None
+    merged_stats: dict[str, Any] = defaultdict(int)
+    nested_keys = ["by_module", "by_branch", "by_step", "by_order"]
+    nested_values: dict[str, list[dict[str, Any]]] = {key: [] for key in nested_keys}
+    weighted_order = 0.0
+    committed = 0
+    for policy in policies:
+        stats = policy.get("stats") or {}
+        for key, value in stats.items():
+            if key in nested_keys:
+                nested_values[key].append(value)
+            elif isinstance(value, int):
+                merged_stats[key] += value
+        count = int(stats.get("forecast_committed", 0) or 0)
+        committed += count
+        weighted_order += float(stats.get("mean_effective_order", 0.0) or 0.0) * count
+    merged_stats["mean_effective_order"] = weighted_order / committed if committed else 0.0
+    for key, payloads in nested_values.items():
+        if key == "by_order":
+            flat: dict[str, int] = defaultdict(int)
+            for payload in payloads:
+                for order, value in (payload or {}).items():
+                    if isinstance(value, int):
+                        flat[str(order)] += value
+            merged_stats[key] = dict(sorted(flat.items()))
+        else:
+            merged_stats[key] = _merge_nested_counts(payloads)
+    return {"policy": policies[0].get("policy"), "config": policies[0].get("config"), "stats": dict(merged_stats)}
+
+
 def _merge_cache_stats(shards: list[dict[str, Any]]) -> dict[str, Any]:
     keys = ["total_calls", "hits", "misses", "refreshes", "disabled"]
     merged = {key: sum(int(shard.get(key, 0) or 0) for shard in shards) for key in keys}
@@ -109,6 +142,9 @@ def _merge_cache_stats(shards: list[dict[str, Any]]) -> dict[str, Any]:
     safe_policy = _merge_safe_policy(shards)
     if safe_policy is not None:
         merged["safe_policy"] = safe_policy
+    taylorseer_policy = _merge_taylorseer_policy(shards)
+    if taylorseer_policy is not None:
+        merged["taylorseer_policy"] = taylorseer_policy
     dynamic = [shard.get("dynamic_cache") for shard in shards if isinstance(shard.get("dynamic_cache"), dict)]
     if dynamic:
         merged["dynamic_cache"] = dynamic[0]

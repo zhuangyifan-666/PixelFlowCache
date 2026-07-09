@@ -44,3 +44,40 @@ def test_run_jit_parallel_generate_print_only_outputs_workers_and_merge(tmp_path
     assert "torchrun" not in stdout
     assert "accelerate" not in stdout
     assert "nohup" not in stdout
+
+
+
+def test_run_jit_parallel_generate_print_only_passes_taylorseer_args(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/run_jit_parallel_generate.py",
+            "--method",
+            "taylorseer_style",
+            "--run-id",
+            "unit_taylor",
+            "--gpus",
+            "0,1,2,3",
+            "--num-shards",
+            "4",
+            "--taylorseer-interval",
+            "4",
+            "--taylorseer-max-order",
+            "4",
+            "--taylorseer-debug-jsonl",
+            str(tmp_path / "debug.jsonl"),
+            "--print-only",
+        ],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    stdout = result.stdout
+    assert "--method taylorseer_style" in stdout
+    assert "--taylorseer-interval 4" in stdout
+    assert "--taylorseer-max-order 4" in stdout
+    assert "--taylorseer-debug-jsonl" in stdout
+    assert "torchrun" not in stdout
+    assert "accelerate" not in stdout
+    assert "nohup" not in stdout
