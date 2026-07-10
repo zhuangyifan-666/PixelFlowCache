@@ -6,7 +6,7 @@ BoundaryFlowCache is a boundary-aware cache for pixel-space flow diffusion model
 
 Flow samplers move from noise toward image. Early and late portions of the trajectory are more sensitive to stale features. BoundaryFlowCache therefore activates only inside a configured timestep window and refreshes on the first eligible hit before reuse begins.
 
-The canonical method registry is `pfc/eval/method_presets.py`. Fixed BFC remains a legacy/diagnostic comparison. Experimental Safe-BFC uses calibrated safe maps. Adapted SeaCache, TaylorSeer, SpeCa, and DiCache policies provide the main baseline interfaces. PixARC is not implemented.
+The canonical method registry is `pfc/eval/method_presets.py`. Fixed BFC remains a legacy/diagnostic comparison. Experimental Safe-BFC uses calibrated safe maps. Adapted SeaCache, TaylorSeer, SpeCa, and DiCache policies provide the main baseline interfaces. PixARC Stage-1 instrumentation is implemented; the Stage-2 oracle and final scheduler are not implemented.
 
 ## PixBFC Interface
 
@@ -54,6 +54,7 @@ The DeCo wrapper excludes normalization, modulation, embedding, dropout, and tin
 ## Current Scope
 
 The runtime cache validates a low-cost input signature (shape, dtype, device, batch, and session) before reuse and records output metadata. It never hashes tensor contents. Formal speed comparison uses synchronized single-GPU sampling latency; model load, input preparation, postprocess, PNG/NPZ, manifest I/O, resume skips, and parallel orchestration are separately recorded.
+
 ## Policy reset contract
 
 Cache policies expose two distinct reset operations. `clear_batch()` and `reset_runtime_state()` clear batch/session history and pending decisions; `reset_stats()` clears cumulative counters, running moments, bounded diagnostic samples, and host-dispatch timings without changing immutable policy configuration. JiT warmup completion calls runtime reset and statistics reset for Safe-BFC, TaylorSeer, SpeCa, and DiCache, and also clears and resets `RuntimeCacheState`. Warmup activity is therefore excluded from formal `cache_stats.json` output.

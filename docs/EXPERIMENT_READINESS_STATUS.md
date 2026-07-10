@@ -1,6 +1,6 @@
 # Experiment Readiness Status
 
-Last updated: 2026-07-10 18:28:51 Asia/Shanghai
+Last updated: 2026-07-10 20:25:37 Asia/Shanghai
 
 Recovery snapshot: `C:\Users\user\AppData\Local\Temp\PixelFlowCache_recovery_20260710_180506`
 
@@ -32,13 +32,13 @@ Recovery snapshot: `C:\Users\user\AppData\Local\Temp\PixelFlowCache_recovery_202
 
 ## Windows verification
 
-- [x] 153 Python files passed `py_compile`
-- [x] 9 YAML configurations parsed successfully
+- [x] 180 Python files passed `py_compile`
+- [x] 10 YAML configurations parsed successfully
 - [x] 10 tracked shell scripts are LF
 - [x] 10 tracked shell scripts passed `bash -n` with `D:\Git\bin\bash.exe`
 - [x] Shell policy tests passed
-- [x] 325 tests collected
-- [x] 324 tests passed, 1 skipped, 0 failed in four file groups
+- [x] 365 tests collected
+- [x] 364 tests passed, 1 skipped, 0 failed in four file groups
 - [x] CPU/non-strict preflight returned zero with GPU validation disabled
 - [x] Readiness planner print-only returned zero
 - [x] Stage 4A full planner returned zero with both Safe maps
@@ -57,3 +57,16 @@ Recovery snapshot: `C:\Users\user\AppData\Local\Temp\PixelFlowCache_recovery_202
 - [ ] Blocked on server GPU: PSNR/SSIM/LPIPS/relative-L2 paired metrics
 
 No known Windows code-level blocker remains. This status does not claim checkpoint, CUDA, multi-GPU, FID, or paired-metric execution.
+
+## PixARC Stage 1
+
+- [x] JiT fresh split-forward capture and joint boundary plans implemented
+- [x] Fresh-state replay, age-1/age-2 reuse, and first-order Taylor counterfactuals implemented
+- [x] Full Euler transition risk, radial frequency risk, and cheap signals implemented
+- [x] Strict per-sample atomic output, resume, shard merge, and validator implemented
+- [x] Four-worker independent-shard launcher supports Windows print-only planning
+- [x] Windows fake-model tests, strict synthetic merge/validator tests, dry-run, and print-only passed
+- [ ] Blocked on server GPU: 2-image strict correctness smoke
+- [ ] Blocked on server GPU: 32-sample four-GPU instrumentation collection
+
+PixARC Stage 1 is instrumentation only. The Stage-2 sequential oracle, risk predictor, calibration, online controller, and final scheduler remain unimplemented.

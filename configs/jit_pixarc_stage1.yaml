@@ -1,0 +1,41 @@
+experiment:
+  name: jit_pixarc_stage1
+  model: jit_b16_256
+  seed: 21
+  num_images: 32
+  steps: 50
+  batch_size: 1
+  cfg: 3.0
+
+boundaries:
+  plans:
+    - early
+    - middle
+    - late
+    - early_middle
+    - whole
+
+actions:
+  - fresh
+  - replay_age_0
+  - reuse_age_1
+  - reuse_age_2
+  - taylor_order_1
+
+risk:
+  atol: 0.001
+  rtol: 0.01
+  frequency_low_ratio: 0.15
+  frequency_high_ratio: 0.45
+
+correctness:
+  equivalence_steps: [0, 1, 25, 49]
+  atol: 1.0e-6
+  rtol: 1.0e-5
+  strict: true
+
+runtime:
+  batch_size: 1
+  measure_action_latency: true
+  save_final_png: false
+  torch_compile: false
