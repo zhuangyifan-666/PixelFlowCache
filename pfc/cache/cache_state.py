@@ -15,6 +15,32 @@ class CacheKey:
     batch_signature: str | None = None
 
 
+@dataclass(frozen=True)
+class InputSignature:
+    shape: tuple[int, ...]
+    dtype: str
+    device_type: str
+    device_index: int | None
+    batch_size: int | None
+    session_id: str | int | None = None
+
+    @classmethod
+    def from_tensor(
+        cls,
+        tensor: torch.Tensor,
+        *,
+        session_id: str | int | None = None,
+    ) -> "InputSignature":
+        return cls(
+            shape=tuple(int(size) for size in tensor.shape),
+            dtype=str(tensor.dtype),
+            device_type=tensor.device.type,
+            device_index=tensor.device.index,
+            batch_size=int(tensor.shape[0]) if tensor.ndim > 0 else None,
+            session_id=session_id,
+        )
+
+
 @dataclass
 class CacheEntry:
     tensor: torch.Tensor
@@ -22,6 +48,10 @@ class CacheEntry:
     t: float
     hit_count: int = 0
     refresh_count: int = 0
+    input_signature: InputSignature | None = None
+    output_shape: tuple[int, ...] | None = None
+    output_dtype: str | None = None
+    output_device: str | None = None
 
 
 @dataclass
@@ -72,6 +102,7 @@ class RuntimeCacheState:
         self,
         model_name: str = "JiT",
         enabled: bool = True,
+        clone_on_store: bool = False,
     ) -> None:
         self.model_name = model_name
         self.current_step_idx = -1
@@ -79,6 +110,8 @@ class RuntimeCacheState:
         self.cfg_branch = "unknown"
         self.solver_stage = "euler"
         self.enabled = enabled
+        self.clone_on_store = bool(clone_on_store)
+        self.session_id: str | int = 0
         self.entries: dict[CacheKey, CacheEntry] = {}
         self.stats = CacheStats()
 
@@ -106,18 +139,42 @@ class RuntimeCacheState:
     def get(self, key: CacheKey) -> CacheEntry | None:
         return self.entries.get(key)
 
-    def put(self, key: CacheKey, tensor: torch.Tensor) -> CacheEntry:
+    def put(
+        self,
+        key: CacheKey,
+        tensor: torch.Tensor,
+        *,
+        input_signature: InputSignature | None = None,
+    ) -> CacheEntry:
+        stored = tensor.detach().clone() if self.clone_on_store else tensor.detach()
         entry = CacheEntry(
-            tensor=tensor.detach(),
+            tensor=stored,
             step_idx=self.current_step_idx,
             t=self.current_t,
             refresh_count=1,
+            input_signature=input_signature,
+            output_shape=tuple(int(size) for size in tensor.shape),
+            output_dtype=str(tensor.dtype),
+            output_device=str(tensor.device),
         )
         self.entries[key] = entry
         return entry
 
-    def clear_entries(self) -> None:
+    def begin_batch(
+        self,
+        *,
+        session_id: str | int | None = None,
+        batch_signature: str | None = None,
+    ) -> None:
         self.entries.clear()
+        if session_id is None:
+            current = int(self.session_id) if isinstance(self.session_id, int) else 0
+            self.session_id = current + 1
+        else:
+            self.session_id = session_id
+
+    def clear_entries(self) -> None:
+        self.begin_batch()
 
     def clear(self) -> None:
         self.clear_entries()
@@ -145,6 +202,8 @@ class RuntimeCacheState:
             "current_t": self.current_t,
             "cfg_branch": self.cfg_branch,
             "solver_stage": self.solver_stage,
+            "session_id": self.session_id,
+            "clone_on_store": self.clone_on_store,
             "num_entries": len(self.entries),
             **self.stats.to_dict(),
         }

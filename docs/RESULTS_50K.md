@@ -14,11 +14,16 @@ The table below summarizes the clean 50k ImageNet-256 generation runs collected 
 | DeCo | bfc_backbone_plus_final_t02_10 | 50 | 1.558701 | 2.359229 | 307.574356 | conservative BFC preset |
 | DeCo | reduced_steps_30 | 30 | 1.602408 | 2.671407 | 304.857249 | reduced-step baseline |
 | DeCo | reduced_steps_35 | 35 | 0.938407 | 2.497287 | 321.075642 | timing anomaly; not used as main speed baseline |
+| PixelGen | no_cache_50 | 50 | 1.000 | 1.8647 | 290.68 | reference |
+| PixelGen | bfc_quality_t02_08 | 50 | 1.341 | 1.9041 | 291.46 | quality preset |
+| PixelGen | bfc_speed_t02_10 | 50 | 1.420 | 1.9472 | 293.51 | speed preset |
+| PixelGen | reduced_steps_35 | 35 | 1.412 | 2.6143 | 289.51 | reduced-step baseline |
+| PixelGen | reduced_steps_30 | 30 | 1.633 | 2.6241 | 291.35 | reduced-step baseline |
 
-The DeCo `reduced_steps_35` timing is anomalous relative to the no-cache reference and the 30-step baseline. Keep it as a reported observation, not as the primary speed comparison.
+The results are 50k ImageNet-256 distribution metrics. The recorded evaluation convention is `torch_fidelity` with `third_party/JiT/fid_stats/jit_in256_stats.npz`. Raw PNGs, latency logs, and FID result bundles are not in this repository. The DeCo `reduced_steps_35` timing is anomalous relative to the no-cache reference and the 30-step baseline. Keep it as a reported observation, not as the primary speed comparison.
 
 For regenerated summaries, use `scripts/collect_stage4a_fid_results.py` with both `--run-id` and `--num-images` so 100-image command checks cannot mix with 50k rows.
 
 ## SeaCache-Style Baseline
 
-The final adapted SeaCache-style baseline threshold is `theta/delta = 0.06`. The 50k JiT and DeCo rows are pending until those runs and FID/IS evaluation are completed and collected.
+The final adapted SeaCache-style baseline threshold is `theta/delta = 0.06`. New SeaCache-, TaylorSeer-, SpeCa-, and DiCache-style rows are pending until generation and FID/IS evaluation complete. A four-GPU 1k wall time is orchestration throughput, not an algorithm speedup; new speed claims must come from schema-v2 synchronized single-GPU sampling.

@@ -4,11 +4,14 @@ model:
   prediction: velocity
   resolution: 256
 
+deprecated: true
+canonical_config: configs/pixbfc_deco.yaml
+
 paths:
   repo: third_party/DeCo
   config: third_party/DeCo/configs_c2i/DeCo_XL.yaml
-  checkpoint: ckpts/DeCo/imagenet256_epoch800/imagenet256_epoch800.ckpt
-  imagenet_root: /path/to/ILSVRC
+  checkpoint: ckpts/DeCo/DeCo_XL.ckpt
+  imagenet_root: null
 
 generation:
   reference_steps: 50
@@ -50,7 +53,7 @@ methods:
     type: dynamic_cache
     steps: 50
     cache_units: all_candidates
-    default_threshold: 0.10
+    default_threshold: 0.06
     sea_beta: 2.0
     proxy: x_t
     proxy_downsample: 64

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import random
+import tempfile
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -30,7 +32,7 @@ def save_label_schedule(labels: list[int], path: Path | str) -> dict[str, Path]:
     target = Path(path)
     if target.suffix.lower() == ".json":
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps({"labels": labels}, indent=2), encoding="utf-8")
+        _write_json_atomic(target, labels)
         return {"json": target}
     if target.suffix.lower() == ".csv":
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -39,9 +41,27 @@ def save_label_schedule(labels: list[int], path: Path | str) -> dict[str, Path]:
     target.mkdir(parents=True, exist_ok=True)
     json_path = target / "labels.json"
     csv_path = target / "labels.csv"
-    json_path.write_text(json.dumps({"labels": labels}, indent=2), encoding="utf-8")
+    _write_json_atomic(json_path, labels)
     _write_csv(csv_path, labels)
     return {"json": json_path, "csv": csv_path}
+
+
+def ensure_label_schedule(labels: list[int], path: Path | str) -> dict[str, Path]:
+    """Create a schedule or reject a resume run with different labels."""
+
+    target = Path(path)
+    existing_path = target / "labels.json" if target.is_dir() or not target.suffix else target
+    if existing_path.exists():
+        try:
+            existing = load_label_schedule(existing_path)
+        except Exception as exc:
+            raise ValueError(f"Existing label schedule is unreadable: {existing_path}: {exc}") from exc
+        if [int(value) for value in existing] != [int(value) for value in labels]:
+            raise RuntimeError(f"Existing label schedule differs: {existing_path}")
+        if target.suffix:
+            return {target.suffix.lstrip(".").lower(): target}
+        return {"json": target / "labels.json", "csv": target / "labels.csv"}
+    return save_label_schedule(labels, target)
 
 
 def load_label_schedule(path: Path | str) -> list[int]:
@@ -86,4 +106,27 @@ def _write_csv(path: Path, labels: list[int]) -> None:
         writer.writeheader()
         for idx, label in enumerate(labels):
             writer.writerow({"index": idx, "label": int(label)})
+
+
+def _write_json_atomic(path: Path, labels: list[int]) -> None:
+    handle = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        newline="\n",
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        delete=False,
+    )
+    temp_path = Path(handle.name)
+    try:
+        with handle:
+            json.dump({"labels": [int(label) for label in labels]}, handle, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
 

@@ -42,6 +42,7 @@ def test_safe_map_density_min_density_failure(tmp_path: Path) -> None:
         text=True,
         capture_output=True,
         check=False,
+        timeout=60,
     )
     assert result.returncode != 0
     assert '"safe_true": 1' in result.stdout

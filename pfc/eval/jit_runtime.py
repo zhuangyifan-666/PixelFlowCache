@@ -92,6 +92,23 @@ def cfg_enabled(t_value: float, low: float, high: float) -> bool:
     return (t_value < high) and ((low == 0.0) or (t_value > low))
 
 
+def xpred_to_velocity(
+    x_pred: torch.Tensor,
+    state: torch.Tensor,
+    t: torch.Tensor,
+    t_eps: float,
+) -> torch.Tensor:
+    return (x_pred - state) / (1.0 - t).clamp_min(t_eps)
+
+
+def combine_cfg_velocity(
+    v_cond: torch.Tensor,
+    v_uncond: torch.Tensor,
+    cfg_scale: float,
+) -> torch.Tensor:
+    return v_uncond + float(cfg_scale) * (v_cond - v_uncond)
+
+
 def sample_jit(
     model: Any,
     labels: torch.Tensor,
@@ -101,6 +118,7 @@ def sample_jit(
     cache_state: RuntimeCacheState | None = None,
     dynamic_policy: RawAccumulatedDistancePolicy | SeaCacheSpectralDistancePolicy | None = None,
     dynamic_decision_writer: Callable[[dict[str, Any]], None] | None = None,
+    collect_step_records: bool = False,
 ) -> tuple[torch.Tensor, list[dict[str, Any]]]:
     outputs: list[torch.Tensor] = []
     records: list[dict[str, Any]] = []
@@ -120,9 +138,9 @@ def sample_jit(
             t_scalar = timesteps[step_idx]
             t_next_scalar = timesteps[step_idx + 1]
             dt = t_next_scalar - t_scalar
-            t_value = float(t_scalar.detach().float().cpu().item())
-            t_next_value = float(t_next_scalar.detach().float().cpu().item())
-            dt_value = float(dt.detach().float().cpu().item())
+            t_value = step_idx / config.steps
+            t_next_value = (step_idx + 1) / config.steps
+            dt_value = 1.0 / config.steps
             t = t_scalar.expand(z.shape[0], 1, 1, 1)
             cfg_active = cfg_enabled(t_value, config.interval_min, config.interval_max)
             cfg_scale_interval = config.cfg if cfg_active else 1.0
@@ -142,7 +160,7 @@ def sample_jit(
             if cache_state is not None:
                 cache_state.set_context(step_idx, t_value, "cond", solver_stage="euler")
             x_cond = model.net(z, t.flatten(), batch_labels)
-            v_cond = (x_cond - z) / (1.0 - t).clamp_min(model.t_eps)
+            v_cond = xpred_to_velocity(x_cond, z, t, model.t_eps)
 
             if dynamic_policy is not None and dynamic_policy.per_branch:
                 _update_dynamic_policy(
@@ -160,24 +178,25 @@ def sample_jit(
                 cache_state.set_context(step_idx, t_value, "uncond", solver_stage="euler")
             null_labels = torch.full_like(batch_labels, model.num_classes)
             x_uncond = model.net(z, t.flatten(), null_labels)
-            v_uncond = (x_uncond - z) / (1.0 - t).clamp_min(model.t_eps)
+            v_uncond = xpred_to_velocity(x_uncond, z, t, model.t_eps)
 
-            v_cfg = v_uncond + cfg_scale_interval * (v_cond - v_uncond)
-            records.append(
-                {
-                    "record_type": "jit_step",
-                    "mode": mode,
-                    "batch_start": batch_start,
-                    "batch_end": batch_end,
-                    "step_idx": step_idx,
-                    "t": t_value,
-                    "t_next": t_next_value,
-                    "dt": dt_value,
-                    "cfg_enabled": cfg_active,
-                    "cfg_scale": config.cfg,
-                    "velocity_l2": l2_norm(v_cfg),
-                }
-            )
+            v_cfg = combine_cfg_velocity(v_cond, v_uncond, cfg_scale_interval)
+            if collect_step_records:
+                records.append(
+                    {
+                        "record_type": "jit_step",
+                        "mode": mode,
+                        "batch_start": batch_start,
+                        "batch_end": batch_end,
+                        "step_idx": step_idx,
+                        "t": t_value,
+                        "t_next": t_next_value,
+                        "dt": dt_value,
+                        "cfg_enabled": cfg_active,
+                        "cfg_scale": config.cfg,
+                        "velocity_l2": l2_norm(v_cfg),
+                    }
+                )
             z = z + dt * v_cfg
         outputs.append(z.detach())
     return torch.cat(outputs, dim=0), records

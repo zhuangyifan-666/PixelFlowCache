@@ -6,6 +6,8 @@ This repository tracks source code only. Checkpoints, datasets, logs, outputs, g
 
 ```bash
 bash scripts/setup_third_party.sh
+bash scripts/setup_third_party.sh --print-only
+bash scripts/setup_third_party.sh --check-only
 ```
 
 Expected submodules:
@@ -13,6 +15,7 @@ Expected submodules:
 - `third_party/JiT`
 - `third_party/DeCo`
 - `third_party/PixelGen` for experimental PixelGen Stage 4A runs
+- `third_party/PixelDiT` (source only; runtime adapter pending)
 
 Do not edit files inside `third_party` for BoundaryFlowCache changes.
 
@@ -31,8 +34,8 @@ Use `conda run -n jit ...`, `conda run -n deco ...`, and `conda run -n pixelgen 
 Expected local paths:
 
 - `ckpts/JiT/JiT-B-16-256/checkpoint-last.pth`
-- `ckpts/DeCo/imagenet256_epoch800/imagenet256_epoch800.ckpt`
-- `ckpts/PixelGen/PixelGen_XL_160ep.ckpt` for experimental PixelGen runs
+- `ckpts/DeCo/DeCo_XL.ckpt`
+- `ckpts/PixelGen/PixelGen_XL_160ep.ckpt`
 
 The files are not committed. If local layouts differ, pass `--jit-ckpt-dir`, `--deco-ckpt`, or `--pixelgen-ckpt` to the generation scripts.
 
@@ -46,7 +49,8 @@ FID/IS evaluation can use either:
 Use this dry-run before preparing references:
 
 ```bash
-conda run -n jit python scripts/prepare_stage4a_imagenet_reference.py --dry-run
+conda run -n jit python scripts/prepare_stage4a_imagenet_reference.py \
+  --imagenet-root /path/to/ILSVRC --dry-run
 ```
 
 ## GPU Policy
@@ -59,4 +63,4 @@ export PFC_CUDA_DEVICES=0
 
 The cleanup and validation commands do not launch long GPU jobs.
 
-PixelGen support is experimental/in progress. The repository provides the adapter, dry-run, command planner, and generation entry point, but no PixelGen 50k results are included.
+Run `scripts/preflight_experiments.py --strict` before any smoke. It checks submodules, checkpoint/stat structure without loading them, safe-map density, packages, GPU inventory, disk space, shell syntax/line endings, registry/config consistency, and stale absolute paths. It never downloads assets or runs generation. PixelGen has a runtime adapter; PixelDiT remains source-only.

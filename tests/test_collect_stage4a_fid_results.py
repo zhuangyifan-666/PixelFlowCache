@@ -29,13 +29,28 @@ def _write_method(
             "model": model,
             "run_id": run_id,
             "num_images": num_images,
+            "batch_size": 8,
+            "provenance": {"gpu_count": 1},
             "method": {
                 "method_name": method,
                 "eval_steps": 50,
             },
         },
     )
-    _write_json(method_dir / "latency.json", {"latency_sec": latency_sec, "images_per_sec": num_images / latency_sec})
+    _write_json(
+        method_dir / "latency.json",
+        {
+            "timing_schema_version": 2,
+            "sampling_latency_sec": latency_sec,
+            "end_to_end_latency_sec": latency_sec + 1.0,
+            "sampling_images_per_sec": num_images / latency_sec,
+            "timing_scope": "synchronized_single_gpu_sampling",
+            "comparable_for_algorithm_speedup": True,
+            "legacy_timing": False,
+            "resume": False,
+            "num_shards": 1,
+        },
+    )
     _write_json(method_dir / "cache_stats.json", {"hit_rate": 0.0 if method == "no_cache_50" else 0.4})
     _write_json(
         fid_root / run_id / model / method / "fid_results.json",

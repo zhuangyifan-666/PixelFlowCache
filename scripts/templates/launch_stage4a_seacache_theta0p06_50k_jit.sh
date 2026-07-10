@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /mnt/iset/nfs-main/private/zhuangyifan/PixelFlowCache
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "${ROOT}"
 
 if command -v conda >/dev/null 2>&1; then
   eval "$(conda shell.bash hook)"
@@ -10,6 +11,10 @@ fi
 
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export PFC_CUDA_DEVICES="${PFC_CUDA_DEVICES:-0}"
+resume_args=()
+if [[ "${PFC_RESUME:-0}" == "1" ]]; then
+  resume_args+=(--resume)
+fi
 
 python scripts/run_jit_stage4a_generate.py \
   --method seacache_style \
@@ -21,7 +26,7 @@ python scripts/run_jit_stage4a_generate.py \
   --output-root outputs/stage4a/full_generation \
   --save-png \
   --no-save-npz \
-  --resume
+  "${resume_args[@]}"
 
 python scripts/evaluate_stage4a_fid.py \
   --fake-dir outputs/stage4a/full_generation/jit/stage4a_jit_seacache_theta0p06_n50000_seed0/seacache_style/images \
@@ -29,4 +34,5 @@ python scripts/evaluate_stage4a_fid.py \
   --backend torch_fidelity \
   --metrics fid,is \
   --batch-size 64 \
+  --expected-images 50000 \
   --out logs/stage4a/fid/stage4a_jit_seacache_theta0p06_n50000_seed0/seacache_style/fid_results.json

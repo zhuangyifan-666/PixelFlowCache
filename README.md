@@ -2,13 +2,16 @@
 
 BoundaryFlowCache is a compact implementation of boundary-aware caching for pixel-space flow diffusion models. The retained code focuses on final 50-step generation, BoundaryFlowCache acceleration, reduced-step baselines, and FID/IS evaluation.
 
-The codebase is being refactored into PixBFC, a general adapter-based framework for pixel-space diffusion and flow models. JiT and DeCo remain the supported models with completed 50k runs. PixelGen support is experimental/in progress for upcoming ImageNet-256 runs; no PixelGen results are claimed yet.
+The codebase exposes PixBFC, an adapter-based framework for pixel-space diffusion and flow models. JiT, DeCo, and PixelGen have generation/runtime adapters. PixelDiT is pinned as third-party source only; its runtime adapter is still pending.
 
 ## Supported Models
 
 - JiT-B/16 ImageNet-256
 - DeCo ImageNet-256
-- PixelGen-XL ImageNet-256 (experimental/in progress; Stage 4A entry points only, results not run)
+- PixelGen-XL ImageNet-256
+- PixelDiT (source checkout only; runtime adapter pending)
+
+Implemented comparison policies include fixed BFC (legacy/diagnostic), experimental Safe-BFC, and adapted SeaCache-, TaylorSeer-, SpeCa-, and DiCache-style baselines. “Adapted” is intentional: these are not claims of byte-for-byte official reproductions. PixARC is not implemented.
 
 ## Main 50k Results
 
@@ -23,20 +26,25 @@ The codebase is being refactored into PixBFC, a general adapter-based framework 
 | DeCo | bfc_all_candidates_t02_10 | 50 | 1.652 | 2.359 | 307.574 |
 | DeCo | bfc_backbone_plus_final_t02_10 | 50 | 1.559 | 2.359 | 307.574 |
 | DeCo | reduced_steps_30 | 30 | 1.602 | 2.671 | 304.857 |
+| PixelGen | no_cache_50 | 50 | 1.000 | 1.8647 | 290.68 |
+| PixelGen | bfc_quality_t02_08 | 50 | 1.341 | 1.9041 | 291.46 |
+| PixelGen | bfc_speed_t02_10 | 50 | 1.420 | 1.9472 | 293.51 |
+| PixelGen | reduced_steps_35 | 35 | 1.412 | 2.6143 | 289.51 |
+| PixelGen | reduced_steps_30 | 30 | 1.633 | 2.6241 | 291.35 |
 
-The DeCo `reduced_steps_35` run had a timing anomaly and is documented in [docs/RESULTS_50K.md](docs/RESULTS_50K.md), but it is not used as the main speed baseline.
+These are 50k ImageNet-256 results evaluated with `torch_fidelity` and the repository’s expected ImageNet-256 reference stats at `third_party/JiT/fid_stats/jit_in256_stats.npz`. Raw images, logs, and evaluator artifacts are not stored in Git. New SeaCache/TaylorSeer/SpeCa/DiCache results remain pending. The DeCo `reduced_steps_35` run had a timing anomaly and is documented in [docs/RESULTS_50K.md](docs/RESULTS_50K.md).
 
 ## Installation
 
 ```bash
-git submodule update --init --recursive third_party/JiT third_party/DeCo third_party/PixelGen
+git submodule update --init --recursive
 ```
 
 Expected local assets:
 
 - JiT checkpoint: `ckpts/JiT/JiT-B-16-256/checkpoint-last.pth`
-- DeCo checkpoint: `ckpts/DeCo/imagenet256_epoch800/imagenet256_epoch800.ckpt`
-- PixelGen checkpoint for experimental runs: `ckpts/PixelGen/PixelGen_XL_160ep.ckpt`
+- DeCo checkpoint: `ckpts/DeCo/DeCo_XL.ckpt`
+- PixelGen checkpoint: `ckpts/PixelGen/PixelGen_XL_160ep.ckpt`
 - ImageNet root: a local ImageFolder-compatible ILSVRC directory
 - Conda envs: `jit` for JiT/evaluation, `deco` for DeCo, `pixelgen` for PixelGen generation
 
@@ -68,7 +76,7 @@ conda run -n deco python scripts/run_deco_stage4a_generate.py \
   --no-save-npz
 ```
 
-PixelGen experimental dry-run example:
+PixelGen dry-run example:
 
 ```bash
 conda run -n pixelgen python scripts/run_pixelgen_stage4a_generate.py \
@@ -87,7 +95,17 @@ PixelGen 50k command plans can be printed with:
 bash scripts/print_stage4a_pixelgen_50k_commands.sh
 ```
 
-These commands are entry points for future runs; PixelGen FID/IS numbers have not been generated.
+The planner prints commands only. It does not run generation.
+
+Before any server smoke or formal run, execute the strict preflight and review both generated reports:
+
+```bash
+conda run -n jit python scripts/preflight_experiments.py \
+  --models jit,deco,pixelgen \
+  --methods no_cache_50,safe_bfc_quality,safe_bfc_speed,seacache_style,taylorseer_style,speca_style,dicache_style,reduced_steps_35,reduced_steps_30 \
+  --required-gpus 4 --min-free-disk-gb 100 --strict \
+  --out logs/preflight/server_readiness.json
+```
 
 Print command plans without running generation:
 
@@ -100,7 +118,8 @@ bash scripts/print_stage4a_full_50k_commands.sh
 Prepare an ImageNet reference folder if needed:
 
 ```bash
-conda run -n jit python scripts/prepare_stage4a_imagenet_reference.py --dry-run
+conda run -n jit python scripts/prepare_stage4a_imagenet_reference.py \
+  --imagenet-root /path/to/ILSVRC --dry-run
 ```
 
 Evaluate a generated folder:
@@ -111,6 +130,8 @@ conda run -n jit python scripts/evaluate_stage4a_fid.py \
   --real-dir /path/to/imagenet/val \
   --backend auto \
   --metrics fid,is \
+  --expected-images 1000 \
+  --proxy-result \
   --out logs/stage4a/fid/demo_n1000_seed0/jit/bfc_speed_t02_10/fid_results.json
 ```
 
@@ -132,7 +153,7 @@ conda run -n jit python scripts/plot_stage4a_full_eval.py \
 ## Repository Layout
 
 - `pfc/core`: generic PixBFC boundary specs, model adapter interface, scheduler interface, runtime container, and registry
-- `pfc/adapters`: JiT, DeCo, and experimental PixelGen boundary adapters
+- `pfc/adapters`: JiT, DeCo, and PixelGen boundary adapters
 - `pfc/cache`: cache state, fixed-interval policy, cached module wrappers, JiT/DeCo BoundaryFlowCache wrappers
 - `pfc/eval`: method presets, label scheduling, generation IO, JiT/DeCo runtime helpers, and experimental PixelGen runtime helpers
 - `pfc/diagnostics`: lightweight tensor and frequency diagnostics used by retained runtime code
@@ -149,7 +170,7 @@ See [docs/PIXBFC_GENERALIZATION.md](docs/PIXBFC_GENERALIZATION.md) for the abstr
 
 - Historical smoke, profiling, and exploratory ablation scripts
 - Checkpoints, datasets, generated samples, logs, plots, or uploaded result bundles
-- Token cache, adaptive online policy, solver-aware cache, calibration, or frequency-aware cache
+- PixelDiT runtime adapter and PixARC
 
 See [docs/METHOD.md](docs/METHOD.md), [docs/PIXBFC_GENERALIZATION.md](docs/PIXBFC_GENERALIZATION.md), [docs/SETUP.md](docs/SETUP.md), and [docs/INFERENCE_AND_FID.md](docs/INFERENCE_AND_FID.md) for details.
 

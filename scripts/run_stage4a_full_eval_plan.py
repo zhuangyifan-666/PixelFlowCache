@@ -3,33 +3,25 @@ from __future__ import annotations
 
 import argparse
 import shlex
+import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-JIT_METHODS = [
-    "no_cache_50",
-    "bfc_quality_t02_08",
-    "bfc_speed_t02_10",
-    "teacache_style",
-    "seacache_style",
-    "reduced_steps_35",
-    "reduced_steps_30",
-]
-DECO_METHODS = [
-    "no_cache_50",
-    "bfc_all_candidates_t02_10",
-    "bfc_backbone_plus_final_t02_10",
-    "teacache_style",
-    "seacache_style",
-    "reduced_steps_35",
-    "reduced_steps_30",
-]
+from pfc.eval.method_presets import list_methods_for_model, method_cli_overrides  # noqa: E402
+
+
+PLAN_TAGS = {"reference", "main_baseline", "proxy_default", "final_50k"}
+JIT_METHODS = list_methods_for_model("jit", tags=PLAN_TAGS)
+DECO_METHODS = list_methods_for_model("deco", tags=PLAN_TAGS)
 
 
 def _q(value: str | Path) -> str:
-    return shlex.quote(str(value))
+    text = value.as_posix() if isinstance(value, Path) else str(value)
+    return shlex.quote(text)
 
 
 def _split_csv(value: str) -> list[str]:
@@ -61,12 +53,28 @@ def build_plan(args: argparse.Namespace) -> list[str]:
     ]
     eval_refs = []
     if "jit" in models:
-        for method in _method_filter(JIT_METHODS, requested_methods):
+        jit_methods = _method_filter(JIT_METHODS, requested_methods)
+        required_safe_maps = {
+            "safe_bfc_quality": args.safe_map_quality,
+            "safe_bfc_speed": args.safe_map_speed,
+        }
+        missing_safe_maps = [
+            method for method in jit_methods
+            if method in required_safe_maps and required_safe_maps[method] is None
+        ]
+        if missing_safe_maps:
+            raise ValueError(f"Selected Safe-BFC methods require safe maps: {missing_safe_maps}")
+        for method in jit_methods:
+            overrides = method_cli_overrides("jit", method)
+            if method in required_safe_maps:
+                overrides.extend(["--safe-map", required_safe_maps[method].as_posix()])
+            method_args = "" if not overrides else " " + shlex.join(overrides)
             commands.append(
                 "CUDA_VISIBLE_DEVICES=${PFC_CUDA_DEVICES:-0} conda run -n jit python "
                 f"scripts/run_jit_stage4a_generate.py --method {_q(method)} "
                 f"--num-images {args.num_images} --batch-size {args.batch_size_jit} --seed {args.seed} "
-                f"--run-id {_q(run_id)} --output-root {_q(args.output_root)} --save-png --no-save-npz --resume"
+                f"--run-id {_q(run_id)} --output-root {_q(args.output_root)}{method_args} --save-png --no-save-npz"
+                + (" --resume" if args.resume else "")
             )
             fake_dir = args.output_root / "jit" / run_id / method / "images"
             out = ROOT / "logs/stage4a/fid" / run_id / "jit" / method / "fid_results.json"
@@ -77,7 +85,8 @@ def build_plan(args: argparse.Namespace) -> list[str]:
                 "CUDA_VISIBLE_DEVICES=${PFC_CUDA_DEVICES:-0} conda run -n deco python "
                 f"scripts/run_deco_stage4a_generate.py --method {_q(method)} "
                 f"--num-images {args.num_images} --batch-size {args.batch_size_deco} --seed {args.seed} "
-                f"--run-id {_q(run_id)} --output-root {_q(args.output_root)} --save-png --no-save-npz --resume"
+                f"--run-id {_q(run_id)} --output-root {_q(args.output_root)} --save-png --no-save-npz"
+                + (" --resume" if args.resume else "")
             )
             fake_dir = args.output_root / "deco" / run_id / method / "images"
             out = ROOT / "logs/stage4a/fid" / run_id / "deco" / method / "fid_results.json"
@@ -90,11 +99,12 @@ def build_plan(args: argparse.Namespace) -> list[str]:
         elif args.real_dir:
             reference = f" --real-dir {_q(args.real_dir)}"
         else:
-            reference = " --real-dir /mnt/iset/nfs-main/public/datasets/ILSVRC/Data/CLS-LOC/val"
+            reference = " --real-dir \"${IMAGENET_VAL_DIR:?set IMAGENET_VAL_DIR}\""
+        proxy_args = f" --expected-images {args.num_images}" + (" --proxy-result" if args.num_images < 50000 else "")
         commands.append(
             "CUDA_VISIBLE_DEVICES=${PFC_CUDA_DEVICES:-0} conda run -n jit python "
             f"scripts/evaluate_stage4a_fid.py --fake-dir {_q(fake_dir)}{reference} "
-            f"--backend auto --metrics fid,is --batch-size 64 --out {_q(out)}"
+            f"--backend auto --metrics fid,is --batch-size 64{proxy_args} --out {_q(out)}"
         )
     commands.extend(
         [
@@ -122,6 +132,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--real-dir", type=Path)
     parser.add_argument("--fid-stats", type=Path)
     parser.add_argument("--methods")
+    parser.add_argument("--safe-map-quality", type=Path)
+    parser.add_argument("--safe-map-speed", type=Path)
+    parser.add_argument("--resume", action="store_true")
     parser.add_argument("--out-script", type=Path)
     return parser
 

@@ -249,6 +249,17 @@ class TaylorSeerCachePolicy:
         self._history.clear()
         self._pending_forecasts.clear()
 
+    def reset_runtime_state(self) -> None:
+        self.clear_batch()
+
+    def reset_stats(self) -> None:
+        self._stats = self._empty_stats()
+        self._order_values.clear()
+        self._by_module.clear()
+        self._by_branch.clear()
+        self._by_step.clear()
+        self._by_order.clear()
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "policy_name": self.policy_name,

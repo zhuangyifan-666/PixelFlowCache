@@ -42,6 +42,7 @@ def test_jit_seacache_dry_run_with_fake_checkpoint(tmp_path: Path) -> None:
         check=True,
         text=True,
         capture_output=True,
+        timeout=60,
     )
     payload = json.loads(result.stdout)
     meta = payload["meta"]
@@ -78,6 +79,7 @@ def test_deco_seacache_dry_run_with_fake_checkpoint_and_config(tmp_path: Path) -
         check=True,
         text=True,
         capture_output=True,
+        timeout=60,
     )
     payload = json.loads(result.stdout)
     meta = payload["meta"]

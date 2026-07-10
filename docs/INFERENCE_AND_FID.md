@@ -34,7 +34,7 @@ Use `--dry-run` to validate checkpoint and config paths without loading the mode
 
 ## PixelGen Generation
 
-PixelGen support is experimental/in progress for future ImageNet-256 Stage 4A runs. The commands below are entry points only; no PixelGen 50k FID/IS results are claimed in this repository.
+PixelGen has a Stage 4A runtime adapter. PixelDiT remains source-only with its adapter pending.
 
 ```bash
 conda run -n pixelgen python scripts/run_pixelgen_stage4a_generate.py \
@@ -97,7 +97,9 @@ conda run -n jit python scripts/run_stage4a_full_eval_plan.py \
   --out-script /tmp/pfc_stage4a_50k.sh
 ```
 
-Review generated command plans before launching long jobs.
+Review generated command plans before launching long jobs. Planners and templates omit `--resume` by default; enable resume only explicitly. `--save-npz` with resume is rejected unless `--allow-partial-npz` is explicitly supplied.
+
+The mandatory server sequence is strict preflight, fast tests, 8-image no-cache smoke, force-full equivalence, 16-image baseline smoke, synchronized single-GPU timing, four-GPU 1k proxy generation, proxy FID/IS, paired metrics, and collection. Print all gates with `scripts/run_server_readiness_plan.py --print-only`. Do not jump directly to 1k or 50k.
 
 ## JiT Safe-BFC Proxy Plan
 
@@ -108,7 +110,8 @@ The 1000-image workflow is proxy-only and should not be interpreted as final 50k
 ## Reference Preparation
 
 ```bash
-conda run -n jit python scripts/prepare_stage4a_imagenet_reference.py --dry-run
+conda run -n jit python scripts/prepare_stage4a_imagenet_reference.py \
+  --imagenet-root /path/to/ILSVRC --dry-run
 ```
 
 Pass `--source-root`, `--out-dir`, and `--limit` as needed. The script is designed to prepare a real-image folder for FID/IS tools; it does not belong in git.
@@ -122,10 +125,14 @@ conda run -n jit python scripts/evaluate_stage4a_fid.py \
   --backend auto \
   --metrics fid,is \
   --batch-size 64 \
+  --expected-images 1000 \
+  --proxy-result \
   --out logs/stage4a/fid/demo_n1000_seed0/jit/bfc_speed_t02_10/fid_results.json
 ```
 
-Use the real `torch_fidelity`, `cleanfid`, or `torchmetrics` package. Do not use `scripts/jit_stubs` as an evaluation backend.
+`auto` selects only implemented `torch_fidelity` or `cleanfid` paths. The explicit `torchmetrics` choice raises `NotImplementedError` because folder evaluation is not implemented. A 1k result must use `--proxy-result`; only an exactly validated 50k folder can be marked final. FID stats are checked for keys, readability, size, and SHA256 before computation.
+
+The Windows code-level compatibility check was exercised with `torch-fidelity==0.4.0b0` (the `0.4.0` pre-release line); no broader version range is claimed. Preflight requires the internal FID/ISC/statistics helpers used by `evaluate_stage4a_fid.py` and blocks an installed version that lacks any required symbol. This capability check does not run FID and does not validate CUDA execution.
 
 ## Collection And Plotting
 
@@ -142,4 +149,4 @@ conda run -n jit python scripts/plot_stage4a_full_eval.py \
   --num-images 50000
 ```
 
-The collector computes speedup within `(model, run_id, num_images)` groups so smoke and full-generation rows are not mixed.
+Collectors use only schema-v2 `sampling_latency_sec` and require matching GPU count, batch size, image count, timing scope, and non-resume status. Legacy `latency_sec` remains readable but is never used for speedup. Four-GPU merged runs are non-comparable for algorithm speedup.

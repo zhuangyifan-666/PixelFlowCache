@@ -100,3 +100,5 @@ CUDA_VISIBLE_DEVICES=0 PFC_CUDA_DEVICES=0 conda run -n deco python scripts/run_d
 - This is an adapted baseline, not official SeaCache.
 - Exploratory theta values from earlier development are excluded from final results.
 - The final repository should not contain `baseline/SeaCache` source or submodule content.
+
+The canonical threshold is `0.06` in both presets and active configs. Templates are repository-relative, omit resume by default, and require `PFC_RESUME=1` for explicit recovery. No new SeaCache-style result is claimed until strict preflight, smoke, synchronized single-GPU timing, generation, and evaluation gates pass.

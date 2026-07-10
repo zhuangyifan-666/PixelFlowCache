@@ -31,6 +31,7 @@ def test_pixelgen_stage4a_dry_run_does_not_require_checkpoint(tmp_path: Path) ->
         check=True,
         text=True,
         capture_output=True,
+        timeout=60,
     )
     assert '"checkpoint_exists": false' in result.stdout
     assert '"model_name": "PixelGen"' in result.stdout
@@ -69,6 +70,7 @@ def test_pixelgen_seacache_dry_run_reports_dynamic_meta_without_checkpoint(tmp_p
         check=True,
         text=True,
         capture_output=True,
+        timeout=60,
     )
     assert '"checkpoint_exists": false' in result.stdout
     assert '"method_name": "seacache_style"' in result.stdout

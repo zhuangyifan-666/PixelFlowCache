@@ -27,6 +27,7 @@ def test_pixelgen_command_plan_prints_generation_and_fid_commands(tmp_path: Path
         check=True,
         text=True,
         capture_output=True,
+        timeout=60,
     )
     output = result.stdout
     assert "run_pixelgen_stage4a_generate.py" in output
@@ -35,7 +36,7 @@ def test_pixelgen_command_plan_prints_generation_and_fid_commands(tmp_path: Path
     assert "CUDA_VISIBLE_DEVICES=3" in output
     assert "--batch-size 4" in output
     assert "--pixelgen-ckpt" in output
-    assert "/path/to/imagenet/val" in output
+    assert "IMAGENET_VAL_DIR" in output
     assert "torchrun" not in output
     assert "nohup" not in output
     assert out_script.exists()
@@ -54,12 +55,14 @@ def test_pixelgen_command_plan_second_round_methods() -> None:
         check=True,
         text=True,
         capture_output=True,
+        timeout=60,
     )
     output = result.stdout
     assert "# Second round" in output
     assert "CUDA_VISIBLE_DEVICES=0 conda run -n pixelgen python scripts/run_pixelgen_stage4a_generate.py --method reduced_steps_35" in output
-    assert "CUDA_VISIBLE_DEVICES=1 conda run -n pixelgen python scripts/run_pixelgen_stage4a_generate.py --method bfc_speed_t02_09" in output
-    assert "--method seacache_style" not in output
+    assert "--method bfc_speed_t02_09" in output
+    assert "--method seacache_style" in output
+    assert "--resume" not in output
 
 
 def test_pixelgen_command_plan_seacache_style_prints_dynamic_args() -> None:
@@ -76,6 +79,7 @@ def test_pixelgen_command_plan_seacache_style_prints_dynamic_args() -> None:
         check=True,
         text=True,
         capture_output=True,
+        timeout=60,
     )
     output = result.stdout
     assert "run_pixelgen_stage4a_generate.py --method seacache_style" in output

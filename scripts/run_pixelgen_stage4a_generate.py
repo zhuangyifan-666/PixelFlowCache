@@ -24,14 +24,19 @@ if not os.environ.get("CUDA_VISIBLE_DEVICES"):
 from pfc.adapters import PixelGenBoundaryAdapter  # noqa: E402
 from pfc.eval.generation_io import (  # noqa: E402
     append_generation_manifest,
+    count_images,
     prepare_generation_dir,
+    reconcile_resume_state,
     save_image_batch_png,
     save_npz_samples,
     write_generation_meta,
 )
-from pfc.eval.label_schedule import make_imagenet_class_balanced_labels, save_label_schedule  # noqa: E402
+from pfc.eval.label_schedule import ensure_label_schedule, make_imagenet_class_balanced_labels  # noqa: E402
 from pfc.eval.method_presets import get_pixelgen_stage4a_methods, preset_to_json_dict  # noqa: E402
 from pfc.eval.pixelgen_runtime import PIXELGEN_SOLVER_STAGES  # noqa: E402
+from pfc.eval.provenance import collect_generation_provenance  # noqa: E402
+from pfc.eval.sharding import apply_shard_paths, compute_shard_indices  # noqa: E402
+from pfc.eval.timing import GenerationTiming  # noqa: E402
 
 
 def _default_run_id(seed: int, num_images: int) -> str:
@@ -136,6 +141,10 @@ def _make_noise_for_indices(indices: list[int], seed: int, img_size: int, noise_
     return torch.cat(chunks, dim=0).to(device)
 
 
+def _chunked(values: list[int], chunk_size: int) -> list[list[int]]:
+    return [values[start : start + chunk_size] for start in range(0, len(values), chunk_size)]
+
+
 def _autocast_context(device: Any, amp_dtype: str):
     import contextlib
     import torch
@@ -162,6 +171,14 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         sample_pixelgen_heun_jit,
     )
 
+    generation_started_utc = datetime.now(timezone.utc).isoformat()
+    end_to_end_started = time.perf_counter()
+    timing = GenerationTiming(
+        requested_images=args.num_images,
+        resume=args.resume,
+        num_shards=args.num_shards,
+        shard_index=args.shard_index,
+    )
     if args.save_npz and args.num_images > 5000:
         raise RuntimeError("--save-npz is intended for small/proxy Stage 4A runs, not large 50k runs")
     preset = get_pixelgen_stage4a_methods()[args.method]
@@ -171,7 +188,23 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
 
     labels = make_imagenet_class_balanced_labels(args.num_images)
     paths = resolved["paths"]
-    save_label_schedule(labels, paths["base_dir"])
+    all_shard_indices = compute_shard_indices(
+        args.num_images,
+        args.num_shards,
+        args.shard_index,
+        args.shard_mode,
+    )
+    ensure_label_schedule(labels, paths["base_dir"])
+    reconciliation = reconcile_resume_state(
+        all_shard_indices,
+        labels,
+        paths["image_dir"],
+        paths["manifest"],
+        resume=args.resume,
+        save_png=args.save_png,
+    )
+    shard_indices = reconciliation.pending_indices
+    resolved["meta"]["resume_reconciliation"] = reconciliation.to_dict()
     config = PixelGenRuntimeConfig(
         pixelgen_dir=args.pixelgen_dir.resolve(),
         ckpt_path=args.pixelgen_ckpt.resolve(),
@@ -195,9 +228,11 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         active_t_min=preset.active_t_min,
         active_t_max=preset.active_t_max,
         noise_scale=args.noise_scale,
+        exact_heun=args.exact_heun,
         enable_compile=args.enable_compile,
     )
-    denoiser = load_pixelgen_model(config, device)
+    with timing.measure("model_load_latency_sec"):
+        denoiser = load_pixelgen_model(config, device)
     resolved["meta"]["checkpoint_weight_source"] = getattr(denoiser, "_pfc_checkpoint_source", None)
 
     boundary_adapter = PixelGenBoundaryAdapter()
@@ -206,7 +241,11 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     if preset.method_type == "cache":
         boundary_set = boundary_adapter.default_boundary_set(denoiser, args.method)
         selected_modules = list(boundary_set.module_names())
-        cache_state = RuntimeCacheState(model_name="PixelGen", enabled=bool(selected_modules))
+        cache_state = RuntimeCacheState(
+            model_name="PixelGen",
+            enabled=bool(selected_modules),
+            clone_on_store=args.clone_cache_on_store,
+        )
         boundary_adapter.wrap_boundary_set(
             denoiser,
             boundary_set,
@@ -237,7 +276,11 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
             )
         else:
             dynamic_policy = RawAccumulatedDistancePolicy(**policy_kwargs)
-        cache_state = RuntimeCacheState(model_name="PixelGen", enabled=bool(selected_modules))
+        cache_state = RuntimeCacheState(
+            model_name="PixelGen",
+            enabled=bool(selected_modules),
+            clone_on_store=args.clone_cache_on_store,
+        )
         adapter = DynamicPolicyAdapter(
             dynamic_policy=dynamic_policy,
             cache_modules=set(selected_modules),
@@ -252,45 +295,43 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     samples_for_npz = []
     labels_for_npz: list[int] = []
     generated = 0
-    start = time.perf_counter()
+    existing_images_skipped = len(reconciliation.complete_indices)
     if device.type == "cuda":
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats(device)
-        torch.cuda.synchronize(device)
     debug_handle, dynamic_decision_writer = _dynamic_writer(args.dynamic_cache_debug_jsonl)
     try:
-        for batch_start in range(0, args.num_images, args.batch_size):
-            batch_end = min(batch_start + args.batch_size, args.num_images)
-            indices = list(range(batch_start, batch_end))
-            if args.resume and args.save_png:
-                existing = [paths["image_dir"] / f"{index:06d}.png" for index in indices]
-                if all(path.exists() for path in existing):
-                    continue
-            batch_labels_list = labels[batch_start:batch_end]
-            batch_labels = torch.tensor(batch_labels_list, device=device, dtype=torch.long)
-            batch_noise = _make_noise_for_indices(indices, args.seed, args.img_size, args.noise_scale, device)
-            batch_config = replace(config, batch_size=len(indices))
+        for indices in _chunked(shard_indices, args.batch_size):
+            with timing.measure("input_prepare_latency_sec"):
+                batch_labels_list = [labels[index] for index in indices]
+                batch_labels = torch.tensor(batch_labels_list, device=device, dtype=torch.long)
+                batch_noise = _make_noise_for_indices(indices, args.seed, args.img_size, args.noise_scale, device)
+                batch_config = replace(config, batch_size=len(indices))
             if cache_state is not None:
-                cache_state.clear_entries()
+                cache_state.begin_batch(session_id=f"{args.run_id}:{indices[0]}")
             if dynamic_policy is not None:
                 dynamic_policy.clear_batch()
-            with torch.no_grad(), _autocast_context(device, args.amp_dtype):
-                output, _records = sample_pixelgen_heun_jit(
-                    denoiser,
-                    batch_labels,
-                    batch_noise,
-                    batch_config,
-                    cache_state=cache_state,
-                    dynamic_policy=dynamic_policy,
-                    dynamic_proxy_downsample=args.sea_proxy_downsample,
-                    dynamic_decision_writer=dynamic_decision_writer,
-                )
-            output_cpu = output.detach().cpu()
+            with timing.measure("sampling_latency_sec", device=device, synchronize=True):
+                with torch.no_grad(), _autocast_context(device, args.amp_dtype):
+                    output, _records = sample_pixelgen_heun_jit(
+                        denoiser,
+                        batch_labels,
+                        batch_noise,
+                        batch_config,
+                        cache_state=cache_state,
+                        dynamic_policy=dynamic_policy,
+                        dynamic_proxy_downsample=args.sea_proxy_downsample,
+                        dynamic_decision_writer=dynamic_decision_writer,
+                    )
+            with timing.measure("postprocess_latency_sec"):
+                output_cpu = output.detach().cpu()
             if args.save_png:
-                records = save_image_batch_png(output_cpu, batch_labels_list, batch_start, paths["image_dir"])
+                with timing.measure("png_save_latency_sec"):
+                    records = save_image_batch_png(output_cpu, batch_labels_list, indices, paths["image_dir"])
             else:
                 records = [{"index": index, "label": int(label)} for index, label in zip(indices, batch_labels_list)]
-            append_generation_manifest(paths["manifest"], records)
+            with timing.measure("manifest_latency_sec"):
+                append_generation_manifest(paths["manifest"], records)
             if args.save_npz:
                 samples_for_npz.append(output_cpu)
                 labels_for_npz.extend(batch_labels_list)
@@ -298,30 +339,48 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     finally:
         if debug_handle is not None:
             debug_handle.close()
-    if device.type == "cuda":
-        torch.cuda.synchronize(device)
-        peak_memory = int(torch.cuda.max_memory_allocated(device))
-    else:
-        peak_memory = 0
-    latency = time.perf_counter() - start
-    if args.save_npz:
-        save_npz_samples(torch.cat(samples_for_npz, dim=0), labels_for_npz, paths["samples_npz"])
+    peak_memory = int(torch.cuda.max_memory_allocated(device)) if device.type == "cuda" else 0
+    if args.save_npz and samples_for_npz:
+        with timing.measure("npz_save_latency_sec"):
+            save_npz_samples(torch.cat(samples_for_npz, dim=0), labels_for_npz, paths["samples_npz"])
     cache_stats = cache_state.summary() if cache_state is not None else {"enabled": False, "hit_rate": 0.0}
     if dynamic_policy is not None:
         cache_stats["dynamic_cache"] = dynamic_policy.summary()
         cache_stats["dynamic_cache_threshold"] = dynamic_policy.threshold
         cache_stats["resolved_dynamic_cache_threshold"] = dynamic_policy.threshold
         resolved["meta"]["dynamic_cache_summary"] = dynamic_policy.summary()
+    timing.generated_images_this_run = generated
+    timing.existing_images_skipped = existing_images_skipped
+    timing.total_images_available = count_images(paths["image_dir"])
+    timing.peak_memory_allocated_bytes = peak_memory
+    timing.end_to_end_latency_sec = time.perf_counter() - end_to_end_started
     write_generation_meta(
         paths["latency"],
         {
-            "latency_sec": latency,
-            "images_per_sec": generated / latency if latency > 0 else float("inf"),
+            **timing.to_dict(),
             "generated_images": generated,
-            "peak_memory_allocated_bytes": peak_memory,
+            "total_shard_images": len(all_shard_indices),
+            "shard_mode": args.shard_mode,
         },
     )
     write_generation_meta(paths["cache_stats"], cache_stats)
+    resolved["meta"].update(
+        {
+            "generation_start_utc": generation_started_utc,
+            "generation_end_utc": datetime.now(timezone.utc).isoformat(),
+            "timing_scope": timing.timing_scope,
+            "timing_schema_version": 2,
+            "clone_cache_on_store": args.clone_cache_on_store,
+            "heun_semantics": "predictor_corrector_with_final_predictor_only",
+            "exact_henu": args.exact_heun,
+            "exact_heun": args.exact_heun,
+            "provenance": collect_generation_provenance(
+                ROOT,
+                checkpoint_path=args.pixelgen_ckpt,
+                hash_checkpoint=args.hash_checkpoints,
+            ),
+        }
+    )
     write_generation_meta(paths["generation_meta"], resolved["meta"])
     print(paths["base_dir"])
     return 0
@@ -340,6 +399,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--save-npz", dest="save_npz", action="store_true", default=False)
     parser.add_argument("--no-save-npz", dest="save_npz", action="store_false")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--allow-partial-npz", action="store_true")
+    parser.add_argument("--hash-checkpoints", action="store_true")
+    parser.add_argument("--clone-cache-on-store", action="store_true")
+    parser.add_argument("--warmup-batches", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--run-id")
     parser.add_argument("--pixelgen-dir", type=Path, default=ROOT / "third_party/PixelGen")
@@ -368,6 +431,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dynamic-cache-debug-jsonl", type=Path)
     parser.add_argument("--enable-compile", dest="enable_compile", action="store_true", default=False)
     parser.add_argument("--disable-compile", dest="enable_compile", action="store_false")
+    parser.add_argument("--exact-heun", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--num-shards", type=int, default=1)
+    parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument("--shard-mode", choices=("strided", "contiguous"), default="strided")
     return parser
 
 
@@ -376,6 +443,17 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
     run_id = args.run_id or _default_run_id(args.seed, args.num_images)
     args.run_id = run_id
     paths = prepare_generation_dir(args.output_root, preset.model_name, args.method, run_id, create=not args.dry_run)
+    paths = apply_shard_paths(
+        paths,
+        num_shards=args.num_shards,
+        shard_index=args.shard_index,
+    )
+    shard_indices = compute_shard_indices(
+        args.num_images,
+        args.num_shards,
+        args.shard_index,
+        args.shard_mode,
+    )
     solver_stages = (
         list(preset.solver_stages or PIXELGEN_SOLVER_STAGES)
         if preset.method_type in {"cache", "dynamic_cache"}
@@ -429,6 +507,14 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
         "save_png": args.save_png,
         "save_npz": args.save_npz,
         "resume": args.resume,
+        "allow_partial_npz": args.allow_partial_npz,
+        "partial_npz": bool(args.resume and args.save_npz and args.allow_partial_npz),
+        "warmup_batches": args.warmup_batches,
+        "clone_cache_on_store": args.clone_cache_on_store,
+        "num_shards": args.num_shards,
+        "shard_index": args.shard_index,
+        "shard_mode": args.shard_mode,
+        "shard_indices": shard_indices,
         "pixelgen_dir": str(args.pixelgen_dir.resolve()),
         "pixelgen_dir_exists": args.pixelgen_dir.resolve().is_dir(),
         "pixelgen_ckpt": str(args.pixelgen_ckpt.resolve()),
@@ -449,6 +535,8 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
         "noise_scale": args.noise_scale,
         "amp_dtype": args.amp_dtype,
         "enable_compile": args.enable_compile,
+        "exact_henu": args.exact_heun,
+        "exact_heun": args.exact_heun,
         "cache_interval": preset.cache_interval,
         "active_t_min": preset.active_t_min,
         "active_t_max": preset.active_t_max,
@@ -462,10 +550,18 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    if args.resume and not args.save_png:
+        raise ValueError("Resume requires PNG completion markers in the current implementation.")
     if args.num_images <= 0:
         parser.error("--num-images must be positive")
     if args.batch_size <= 0:
         parser.error("--batch-size must be positive")
+    if args.warmup_batches < 0:
+        parser.error("--warmup-batches must be non-negative")
+    if args.warmup_batches:
+        parser.error("--warmup-batches is supported only by the JiT single-GPU timing suite")
+    if args.num_shards <= 0 or not 0 <= args.shard_index < args.num_shards:
+        parser.error("invalid shard configuration")
     if args.img_size <= 0:
         parser.error("--img-size must be positive")
     if args.t_eps <= 0:
@@ -482,6 +578,10 @@ def main() -> int:
     if args.dry_run:
         _print_dry_run({"meta": resolved["meta"], "paths": resolved["paths"]})
         return 0
+    if args.resume and args.save_npz and not args.allow_partial_npz:
+        raise ValueError(
+            "NPZ resume is not supported because the in-memory tensor set may be incomplete."
+        )
     if not resolved["meta"]["checkpoint_exists"]:
         raise FileNotFoundError(f"Missing PixelGen checkpoint: {args.pixelgen_ckpt}. Pass --pixelgen-ckpt.")
     if not resolved["meta"]["pixelgen_dir_exists"]:

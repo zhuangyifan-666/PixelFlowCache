@@ -4,12 +4,18 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from pfc.eval.timing import normalize_timing_payload  # noqa: E402
+
 FIELDNAMES = [
     "model",
     "run_id",
@@ -18,6 +24,14 @@ FIELDNAMES = [
     "reference_key",
     "steps",
     "latency_sec",
+    "sampling_latency_sec",
+    "end_to_end_latency_sec",
+    "timing_scope",
+    "comparable_for_algorithm_speedup",
+    "legacy_timing",
+    "batch_size",
+    "gpu_count",
+    "resume",
     "images_per_sec",
     "speedup_vs_no_cache",
     "cache_hit_rate",
@@ -120,6 +134,7 @@ def collect_results(
     for method_dir in _method_dirs(root, run_id=run_id, model=model):
         meta = _load_json(method_dir / "generation_meta.json")
         latency = _load_json(method_dir / "latency.json")
+        timing = normalize_timing_payload(latency)
         cache = _load_json(method_dir / "cache_stats.json")
         method = (meta.get("method") or {}).get("method_name") or method_dir.name
         model = meta.get("model") or method_dir.parents[1].name
@@ -138,8 +153,16 @@ def collect_results(
                 "num_images": row_num_images,
                 "reference_key": reference_key,
                 "steps": (meta.get("method") or {}).get("eval_steps"),
-                "latency_sec": _float(latency, "latency_sec"),
-                "images_per_sec": _float(latency, "images_per_sec"),
+                "latency_sec": _float(timing, "end_to_end_latency_sec", "latency_sec"),
+                "sampling_latency_sec": _float(timing, "sampling_latency_sec"),
+                "end_to_end_latency_sec": _float(timing, "end_to_end_latency_sec"),
+                "timing_scope": timing.get("timing_scope"),
+                "comparable_for_algorithm_speedup": bool(timing.get("comparable_for_algorithm_speedup", False)),
+                "legacy_timing": bool(timing.get("legacy_timing", False)),
+                "batch_size": meta.get("batch_size"),
+                "gpu_count": (meta.get("provenance") or {}).get("gpu_count", timing.get("num_shards")),
+                "resume": bool(timing.get("resume", meta.get("resume", False))),
+                "images_per_sec": _float(timing, "sampling_images_per_sec"),
                 "speedup_vs_no_cache": None,
                 "cache_hit_rate": _float(cache, "hit_rate"),
                 "FID": _float(fid, "FID", "frechet_inception_distance"),
@@ -155,14 +178,34 @@ def collect_results(
 
 
 def _add_speedups(rows: list[dict[str, Any]]) -> None:
-    refs: dict[str, float] = {}
+    refs: dict[str, dict[str, Any]] = {}
     for row in rows:
-        if row["method"] == "no_cache_50" and row["latency_sec"]:
-            refs[str(row["reference_key"])] = float(row["latency_sec"])
+        if row["method"] == "no_cache_50" and _row_is_comparable(row):
+            refs[str(row["reference_key"])] = row
     for row in rows:
         reference = refs.get(str(row["reference_key"]))
-        latency = row.get("latency_sec")
-        row["speedup_vs_no_cache"] = reference / float(latency) if reference and latency else None
+        latency = row.get("sampling_latency_sec")
+        same_signature = bool(reference and _comparison_signature(reference) == _comparison_signature(row))
+        row["speedup_vs_no_cache"] = (
+            float(reference["sampling_latency_sec"]) / float(latency)
+            if same_signature and _row_is_comparable(row) and latency
+            else None
+        )
+
+
+def _row_is_comparable(row: dict[str, Any]) -> bool:
+    return bool(
+        row.get("comparable_for_algorithm_speedup")
+        and not row.get("legacy_timing")
+        and not row.get("resume")
+        and row.get("sampling_latency_sec")
+    )
+
+
+def _comparison_signature(row: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        row.get("gpu_count"), row.get("batch_size"), row.get("num_images"), row.get("timing_scope")
+    )
 
 
 def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -210,7 +253,9 @@ def main() -> int:
         model=args.model,
     )
     _write_csv(out_dir / "stage4a_results.csv", rows)
-    (out_dir / "stage4a_results.json").write_text(json.dumps(rows, indent=2, sort_keys=True), encoding="utf-8")
+    (out_dir / "stage4a_results.json").write_text(
+        json.dumps(rows, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8"
+    )
     _write_summary(out_dir / "summary.md", rows)
     print(out_dir)
     return 0

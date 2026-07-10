@@ -30,6 +30,7 @@ def test_fid_eval_dry_run_fake_image_dir(tmp_path: Path) -> None:
         check=True,
         text=True,
         capture_output=True,
+        timeout=60,
     )
     assert "dry_run" in result.stdout
     assert "num_fake_images" in result.stdout

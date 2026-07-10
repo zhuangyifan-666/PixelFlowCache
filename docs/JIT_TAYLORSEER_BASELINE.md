@@ -25,3 +25,8 @@ For formal timing comparisons, remove the old run directory before launching the
 - Safe-BFC: uses calibrated safe reuse/refresh decisions from a safe map.
 
 This document records the method wiring only. It does not claim any FID, IS, PSNR, SSIM, LPIPS, latency, or speedup result.
+
+Formal timing uses `scripts/run_jit_single_gpu_timing_plan.py`; four-GPU merged output is explicitly non-comparable for algorithm speedup.
+## Warmup reset semantics
+
+`clear_batch()` and `reset_runtime_state()` remove forecast history and pending forecasts. `reset_stats()` independently clears forecast/refresh counters, order samples, and grouped diagnostics without changing TaylorSeer configuration. JiT invokes both phases after warmup, together with a full `RuntimeCacheState` reset, so formal batch one starts with empty history and zero cumulative statistics.

@@ -54,7 +54,11 @@ def setup_deco_pythonpath(deco_dir: Path) -> None:
     deco_text = str(deco_dir.resolve())
     if deco_text not in sys.path:
         sys.path.insert(0, deco_text)
-    os.environ["PYTHONPATH"] = f"{root}:{deco_text}:{os.environ.get('PYTHONPATH', '')}"
+    existing = os.environ.get("PYTHONPATH")
+    parts = [str(root), deco_text]
+    if existing:
+        parts.append(existing)
+    os.environ["PYTHONPATH"] = os.pathsep.join(parts)
 
 
 def load_model_args_from_config(config_path: Path) -> dict[str, Any]:
@@ -95,8 +99,23 @@ def load_deco_denoiser(config: DeCoRuntimeConfig, device: torch.device) -> torch
     missing, unexpected = denoiser.load_state_dict(ema_state, strict=False)
     if unexpected:
         raise RuntimeError(f"Unexpected DeCo checkpoint keys: {unexpected[:10]}")
-    if missing:
-        print(f"Warning: missing DeCo denoiser keys: {missing[:10]}")
+    critical_markers = ("x_embedder", "patch_embed", "blocks.0", "final_layer", "output")
+    critical_missing = [
+        key for key in missing if any(marker in key for marker in critical_markers)
+    ]
+    if critical_missing:
+        raise RuntimeError(
+            f"Critical DeCo checkpoint keys are missing: {critical_missing[:10]}"
+        )
+    denoiser._pfc_checkpoint_load_summary = {  # type: ignore[attr-defined]
+        "weight_source": "ema_denoiser" if any(
+            key.startswith("ema_denoiser.") for key in state_dict
+        ) else "denoiser",
+        "missing_keys": list(missing),
+        "unexpected_keys": list(unexpected),
+        "critical_missing_keys": critical_missing,
+        "loaded_key_count": len(ema_state),
+    }
     return denoiser
 
 

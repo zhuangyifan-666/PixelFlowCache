@@ -3,20 +3,21 @@ from __future__ import annotations
 
 import argparse
 import shlex
+import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-PIXELGEN_DEFAULT_METHODS = [
-    "no_cache_50",
-    "bfc_quality_t02_08",
-    "bfc_speed_t02_10",
-    "reduced_steps_30",
-    "reduced_steps_35",
-    "bfc_speed_t02_09",
-]
-PIXELGEN_METHODS = [*PIXELGEN_DEFAULT_METHODS, "seacache_style"]
+from pfc.eval.method_presets import list_methods_for_model  # noqa: E402
+
+
+PIXELGEN_METHODS = list_methods_for_model(
+    "pixelgen", tags={"reference", "main_baseline", "proxy_default", "final_50k"}
+)
+PIXELGEN_DEFAULT_METHODS = list(PIXELGEN_METHODS)
 
 
 def _q(value: str | Path) -> str:
@@ -41,7 +42,7 @@ def _reference_arg(args: argparse.Namespace) -> str:
         return f"--fid-stats {_q(args.fid_stats)}"
     if args.real_dir:
         return f"--real-dir {_q(args.real_dir)}"
-    return "--real-dir /path/to/imagenet/val"
+    return '--real-dir "${IMAGENET_VAL_DIR:?set IMAGENET_VAL_DIR}"'
 
 
 def build_plan(args: argparse.Namespace) -> list[str]:
@@ -87,7 +88,7 @@ def build_plan(args: argparse.Namespace) -> list[str]:
             f"--guidance-interval-max {args.guidance_interval_max} "
             f"--amp-dtype {_q(args.amp_dtype)} "
             f"{dynamic_suffix}"
-            "--save-png --no-save-npz --resume"
+            "--save-png --no-save-npz"
         )
         fake_dir = args.output_root / "pixelgen" / run_id / method / "images"
         out = ROOT / "logs/stage4a/fid" / run_id / "pixelgen" / method / "fid_results.json"
@@ -100,7 +101,9 @@ def build_plan(args: argparse.Namespace) -> list[str]:
             "CUDA_VISIBLE_DEVICES=${PFC_CUDA_DEVICES:-0} "
             f"conda run -n {_q(args.fid_env)} python scripts/evaluate_stage4a_fid.py "
             f"--fake-dir {_q(fake_dir)} {reference} "
-            f"--backend auto --metrics fid,is --batch-size {args.fid_batch_size} --out {_q(out)}"
+            f"--backend auto --metrics fid,is --batch-size {args.fid_batch_size} "
+            f"--expected-images {args.num_images} "
+            f"{'--proxy-result ' if args.num_images < 50000 else ''}--out {_q(out)}"
         )
 
     commands.extend(

@@ -37,6 +37,7 @@ def test_make_forced_safe_map_outputs_all_true_map(tmp_path: Path) -> None:
         check=True,
         text=True,
         capture_output=True,
+        timeout=60,
     )
     payload = json.loads(out.read_text(encoding="utf-8"))
     density = compute_safe_map_density(payload)

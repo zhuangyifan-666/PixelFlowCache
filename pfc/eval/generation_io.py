@@ -1,14 +1,30 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
+from collections import Counter
 from collections.abc import Sequence
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from numbers import Integral
 from pathlib import Path
 from typing import Any
 
-
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+
+
+@dataclass
+class ResumeReconciliation:
+    complete_indices: list[int]
+    pending_indices: list[int]
+    orphan_png_indices: list[int]
+    stale_manifest_indices: list[int]
+    reconstructed_records: list[dict[str, Any]]
+    warnings: list[str]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 def prepare_generation_dir(root: Path | str, model_name: str, method_name: str, run_id: str, create: bool = True) -> dict[str, Path]:
@@ -80,10 +96,10 @@ def save_image_batch_png(
         array = (image * 255.0).round().to(torch.uint8)
         if array.shape[0] == 1:
             pil_array = array.squeeze(0).numpy()
-            pil_image = Image.fromarray(pil_array, mode="L")
+            pil_image = Image.fromarray(pil_array)
         else:
             pil_array = array.permute(1, 2, 0).numpy()
-            pil_image = Image.fromarray(pil_array, mode="RGB")
+            pil_image = Image.fromarray(pil_array)
         filename = f"{index:06d}.png"
         path = image_dir / filename
         pil_image.save(path)
@@ -102,11 +118,9 @@ def save_npz_samples(samples: Any, labels: list[int] | Any, path: Path | str) ->
 
 
 def append_generation_manifest(manifest_path: Path | str, records: list[dict[str, Any]]) -> None:
-    manifest_path = Path(manifest_path)
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    with manifest_path.open("a", encoding="utf-8") as handle:
-        for record in records:
-            handle.write(json.dumps(record, sort_keys=True) + "\n")
+    """Compatibility wrapper with upsert semantics rather than duplicate append."""
+
+    upsert_manifest_records(manifest_path, records)
 
 
 def load_generation_manifest(path: Path | str) -> list[dict[str, Any]]:
@@ -117,11 +131,214 @@ def load_generation_manifest(path: Path | str) -> list[dict[str, Any]]:
         return [json.loads(line) for line in handle if line.strip()]
 
 
+def load_manifest_index_map(
+    path: Path | str,
+    *,
+    reject_duplicates: bool = True,
+) -> dict[int, dict[str, Any]]:
+    rows = load_generation_manifest(path)
+    index_map: dict[int, dict[str, Any]] = {}
+    duplicates: list[int] = []
+    for row in rows:
+        if "index" not in row:
+            raise ValueError(f"manifest row has no global index: {row}")
+        index = int(row["index"])
+        if index in index_map:
+            duplicates.append(index)
+        index_map[index] = dict(row)
+    if duplicates and reject_duplicates:
+        raise ValueError(f"duplicate manifest indices: {sorted(set(duplicates))}")
+    return index_map
+
+
+def upsert_manifest_records(
+    manifest_path: Path | str,
+    records: list[dict[str, Any]],
+) -> None:
+    index_map = load_manifest_index_map(manifest_path, reject_duplicates=True)
+    for record in records:
+        if "index" not in record:
+            raise ValueError(f"manifest row has no global index: {record}")
+        index_map[int(record["index"])] = dict(record)
+    write_manifest_atomic(manifest_path, list(index_map.values()))
+
+
+def reconcile_resume_state(
+    indices: Sequence[int],
+    labels: Sequence[int],
+    image_dir: Path | str,
+    manifest_path: Path | str,
+    *,
+    resume: bool,
+    save_png: bool,
+) -> ResumeReconciliation:
+    requested = [int(index) for index in indices]
+    if resume and not save_png:
+        raise ValueError("Resume requires PNG completion markers in the current implementation.")
+    if not resume:
+        return ResumeReconciliation([], requested, [], [], [], [])
+
+    root = Path(image_dir)
+    manifest = Path(manifest_path)
+    index_map = load_manifest_index_map(manifest, reject_duplicates=True)
+    complete: list[int] = []
+    pending: list[int] = []
+    orphan_pngs: list[int] = []
+    stale_rows: list[int] = []
+    reconstructed: list[dict[str, Any]] = []
+    repaired: list[dict[str, Any]] = []
+    warnings: list[str] = []
+
+    for index in requested:
+        if index < 0 or index >= len(labels):
+            raise ValueError(f"resume index {index} is outside the label schedule")
+        expected_label = int(labels[index])
+        expected_path = root / f"{index:06d}.png"
+        png_exists = expected_path.is_file()
+        row = index_map.get(index)
+        if row is not None:
+            if "label" not in row or int(row["label"]) != expected_label:
+                raise ValueError(
+                    f"manifest label mismatch for index {index}: "
+                    f"manifest={row.get('label')!r}, expected={expected_label}"
+                )
+            raw_path = row.get("path")
+            path_matches = raw_path is not None and _same_path(Path(str(raw_path)), expected_path)
+            if not path_matches:
+                repaired_row = dict(row)
+                repaired_row["path"] = str(expected_path)
+                repaired_row["resume_path_reconciled"] = True
+                repaired.append(repaired_row)
+                row = repaired_row
+                warnings.append(
+                    f"manifest path canonicalized for index {index}: "
+                    f"{raw_path!r} -> {expected_path}"
+                )
+
+        if png_exists and row is not None:
+            complete.append(index)
+        elif png_exists:
+            record = {
+                "index": index,
+                "label": expected_label,
+                "path": str(expected_path),
+                "resume_status": "orphan_png_reconciled",
+            }
+            reconstructed.append(record)
+            orphan_pngs.append(index)
+            complete.append(index)
+            warnings.append(f"orphan PNG reconciled for index {index}")
+        else:
+            pending.append(index)
+            if row is not None:
+                stale_rows.append(index)
+                warnings.append(f"stale manifest row requires regeneration for index {index}")
+
+    if repaired or reconstructed:
+        upsert_manifest_records(manifest, [*repaired, *reconstructed])
+    return ResumeReconciliation(
+        complete_indices=complete,
+        pending_indices=pending,
+        orphan_png_indices=orphan_pngs,
+        stale_manifest_indices=stale_rows,
+        reconstructed_records=reconstructed,
+        warnings=warnings,
+    )
+
+
+def _same_path(left: Path, right: Path) -> bool:
+    return left.resolve(strict=False) == right.resolve(strict=False)
+
+
+def write_manifest_atomic(
+    manifest_path: Path | str,
+    records: list[dict[str, Any]],
+) -> None:
+    target = Path(manifest_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    ordered = sorted(records, key=lambda row: int(row["index"]))
+    seen: set[int] = set()
+    for row in ordered:
+        index = int(row["index"])
+        if index in seen:
+            raise ValueError(f"duplicate manifest index: {index}")
+        seen.add(index)
+    handle = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        newline="\n",
+        dir=target.parent,
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+        delete=False,
+    )
+    temp_path = Path(handle.name)
+    try:
+        with handle:
+            for row in ordered:
+                handle.write(json.dumps(row, sort_keys=True, allow_nan=False) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, target)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+
+def validate_output_indices(
+    image_dir: Path | str,
+    expected_indices: Sequence[int] | None = None,
+    *,
+    strict: bool = False,
+) -> dict[str, Any]:
+    root = Path(image_dir)
+    names = [child.name for child in root.iterdir() if child.is_file() and child.suffix.lower() == ".png"] if root.is_dir() else []
+    invalid_names: list[str] = []
+    indices: list[int] = []
+    for name in names:
+        stem = Path(name).stem
+        if not stem.isdigit():
+            invalid_names.append(name)
+            continue
+        indices.append(int(stem))
+    counts = Counter(indices)
+    duplicates = sorted(index for index, count in counts.items() if count > 1)
+    duplicate_filenames = sorted(name for name, count in Counter(names).items() if count > 1)
+    expected = set(int(index) for index in expected_indices) if expected_indices is not None else set(indices)
+    actual = set(indices)
+    report = {
+        "image_count": len(names),
+        "valid_numeric_image_count": len(indices),
+        "indices": sorted(actual),
+        "duplicate_indices": duplicates,
+        "duplicate_png_filenames": duplicate_filenames,
+        "missing_indices": sorted(expected - actual),
+        "unexpected_indices": sorted(actual - expected),
+        "invalid_filenames": sorted(invalid_names),
+    }
+    report["valid"] = not any(
+        report[key]
+        for key in (
+            "duplicate_indices",
+            "duplicate_png_filenames",
+            "missing_indices",
+            "unexpected_indices",
+            "invalid_filenames",
+        )
+    )
+    if strict and not report["valid"]:
+        raise ValueError(f"output index validation failed: {report}")
+    return report
+
+
 def write_generation_meta(path: Path | str, meta: dict[str, Any]) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = {"timestamp_utc": datetime.now(timezone.utc).isoformat(), **meta}
-    target.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    target.write_text(
+        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
 
 
 def count_images(path: Path | str) -> int:

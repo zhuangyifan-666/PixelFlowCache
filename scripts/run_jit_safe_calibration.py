@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from pfc.eval.provenance import collect_generation_provenance  # noqa: E402
+
 
 def _default_run_id(seed: int, num_images: int) -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -507,7 +509,14 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     }
     _write_outputs(
         paths=resolved["paths"],
-        meta=resolved["meta"],
+        meta={
+            **resolved["meta"],
+            "provenance": collect_generation_provenance(
+                ROOT,
+                checkpoint_path=args.jit_ckpt_dir / "checkpoint-last.pth",
+                hash_checkpoint=args.hash_checkpoints,
+            ),
+        },
         u_table=u_table,
         quality_map=quality_map,
         speed_map=speed_map,
@@ -542,6 +551,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lte-floor", type=float, default=1e-3)
     parser.add_argument("--eps", type=float, default=1e-12)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--hash-checkpoints", action="store_true")
     return parser
 
 

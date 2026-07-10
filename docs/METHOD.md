@@ -6,7 +6,7 @@ BoundaryFlowCache is a boundary-aware cache for pixel-space flow diffusion model
 
 Flow samplers move from noise toward image. Early and late portions of the trajectory are more sensitive to stale features. BoundaryFlowCache therefore activates only inside a configured timestep window and refreshes on the first eligible hit before reuse begins.
 
-The retained implementation uses a fixed cache interval and explicit method presets. It does not include adaptive calibration, token cache, branch cache, or solver-aware cache.
+The canonical method registry is `pfc/eval/method_presets.py`. Fixed BFC remains a legacy/diagnostic comparison. Experimental Safe-BFC uses calibrated safe maps. Adapted SeaCache, TaylorSeer, SpeCa, and DiCache policies provide the main baseline interfaces. PixARC is not implemented.
 
 ## PixBFC Interface
 
@@ -16,7 +16,7 @@ The implementation now exposes the method as PixBFC: a generic interface for pix
 - `BoundarySpec` / `BoundarySet`: named cacheable boundaries such as whole backbone, decoder, or final output.
 - `CacheScheduler`: model-independent refresh/reuse scheduling.
 
-JiT and DeCo are the first two adapters. A future pixel-space model should add an adapter rather than changing the cache state or `CachedModule` mechanics. See [PIXBFC_GENERALIZATION.md](PIXBFC_GENERALIZATION.md).
+JiT, DeCo, and PixelGen have adapters. PixelDiT is pinned as third-party source only and still needs a runtime adapter. A future pixel-space model should add an adapter rather than changing the cache state or `CachedModule` mechanics. See [PIXBFC_GENERALIZATION.md](PIXBFC_GENERALIZATION.md).
 
 ## Adapted Dynamic Baselines
 
@@ -26,6 +26,8 @@ For comparison, the final code also exposes:
 - `seacache_style`: the same accumulated-distance rule after applying a timestep-dependent SEA spectral filter to the `x_t` proxy.
 
 These baselines reuse the same cache units as BoundaryFlowCache but choose refresh/reuse dynamically per step. They are adapted baselines, not official SeaCache implementations.
+
+TaylorSeer uses branch-isolated history. SpeCa uses forecast plus explicit verification accounting. DiCache uses a probe/deep-block schedule with CFG-prefix sharing disabled by default for fairness. Safe-BFC is experimental and requires a nonempty calibrated map. Generation defaults disable per-step host diagnostics so timing does not acquire hidden CUDA synchronization.
 
 ## JiT
 
@@ -51,4 +53,7 @@ The DeCo wrapper excludes normalization, modulation, embedding, dropout, and tin
 
 ## Current Scope
 
-The final codebase is built for reproducible full-generation comparison of no-cache, BoundaryFlowCache, and reduced-step baselines. Historical profiling and exploratory analysis scripts were removed from the current tree.
+The runtime cache validates a low-cost input signature (shape, dtype, device, batch, and session) before reuse and records output metadata. It never hashes tensor contents. Formal speed comparison uses synchronized single-GPU sampling latency; model load, input preparation, postprocess, PNG/NPZ, manifest I/O, resume skips, and parallel orchestration are separately recorded.
+## Policy reset contract
+
+Cache policies expose two distinct reset operations. `clear_batch()` and `reset_runtime_state()` clear batch/session history and pending decisions; `reset_stats()` clears cumulative counters, running moments, bounded diagnostic samples, and host-dispatch timings without changing immutable policy configuration. JiT warmup completion calls runtime reset and statistics reset for Safe-BFC, TaylorSeer, SpeCa, and DiCache, and also clears and resets `RuntimeCacheState`. Warmup activity is therefore excluded from formal `cache_stats.json` output.

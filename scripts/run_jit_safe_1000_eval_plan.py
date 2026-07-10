@@ -2,18 +2,17 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 
-METHODS = [
-    "no_cache_50",
-    "safe_bfc_quality",
-    "safe_bfc_speed",
-    "seacache_style",
-    "taylorseer_style",
-    "reduced_steps_35",
-    "reduced_steps_30",
-]
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from pfc.eval.method_presets import list_methods_for_model  # noqa: E402
+
+METHODS = list_methods_for_model("jit", tags={"reference", "main_baseline", "proxy_default"})
 PAIR_METHODS = [method for method in METHODS if method != "no_cache_50"]
 
 
@@ -62,6 +61,8 @@ def _fid_command(args: argparse.Namespace, method: str, *, use_real_dir: bool = 
             "--metrics fid,is",
             "--batch-size 64",
             "--device cuda",
+            f"--expected-images {args.num_images}",
+            "--proxy-result",
             f"--out logs/stage5a/fid/${{RUN_ID}}/jit/{method}/fid_results.json",
         ]
     )
@@ -244,6 +245,52 @@ def main() -> int:
             args,
             "taylorseer_style",
             ["--taylorseer-interval 4", "--taylorseer-max-order 4"],
+        )
+    )
+    print()
+    print("# speca_style")
+    print(
+        _parallel_generation_command(
+            args,
+            "speca_style",
+            [
+                "--speca-max-order 4",
+                "--speca-first-full-steps 3",
+                "--speca-base-threshold 0.1",
+                "--speca-decay-rate 0.01",
+                "--speca-min-threshold 0.01",
+                "--speca-min-forecast-steps 2",
+                "--speca-max-forecast-steps 5",
+                "--speca-error-metric relative_l1",
+                "--speca-branch-aggregation mean",
+                "--speca-verifier-module auto",
+                "--speca-min-history 2",
+                "--speca-eps 1e-10",
+                "--speca-max-error-samples 4096",
+            ],
+        )
+    )
+    print()
+    print("# dicache_style")
+    print(
+        _parallel_generation_command(
+            args,
+            "dicache_style",
+            [
+                "--dicache-probe-depth 1",
+                "--dicache-reuse-threshold 0.4",
+                "--dicache-error-choice delta_y",
+                "--dicache-branch-aggregation mean",
+                "--dicache-ret-ratio 0.2",
+                "--dicache-force-last-step-full",
+                "--dicache-dcta",
+                "--dicache-gamma-min 1.0",
+                "--dicache-gamma-max 1.5",
+                "--dicache-eps 1e-10",
+                "--dicache-max-stat-samples 4096",
+                "--no-dicache-share-cfg-prefix",
+                "--dicache-schedule-variant released_flux_compat",
+            ],
         )
     )
     print()

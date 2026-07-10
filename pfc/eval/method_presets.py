@@ -1,10 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal
 
 
-MethodType = Literal["reference", "cache", "safe_cache", "dynamic_cache", "forecast_cache", "reduced_steps"]
+MethodType = Literal[
+    "reference",
+    "cache",
+    "safe_cache",
+    "dynamic_cache",
+    "forecast_cache",
+    "speculative_cache",
+    "probe_cache",
+    "reduced_steps",
+]
 
 
 @dataclass(frozen=True)
@@ -29,6 +38,31 @@ class GenerationMethodPreset:
     taylorseer_max_order: int | None = None
     taylorseer_refresh_first_n_steps: int | None = None
     taylorseer_refresh_last_n_steps: int | None = None
+    speca_max_order: int | None = None
+    speca_first_full_steps: int | None = None
+    speca_base_threshold: float | None = None
+    speca_decay_rate: float | None = None
+    speca_min_threshold: float | None = None
+    speca_min_forecast_steps: int | None = None
+    speca_max_forecast_steps: int | None = None
+    speca_error_metric: str | None = None
+    speca_branch_aggregation: str | None = None
+    speca_verifier_module: str | None = None
+    speca_min_history: int | None = None
+    dicache_probe_depth: int | None = None
+    dicache_reuse_threshold: float | None = None
+    dicache_error_choice: str | None = None
+    dicache_branch_aggregation: str | None = None
+    dicache_ret_ratio: float | None = None
+    dicache_force_last_step_full: bool | None = None
+    dicache_dcta_enabled: bool | None = None
+    dicache_gamma_min: float | None = None
+    dicache_gamma_max: float | None = None
+    dicache_eps: float | None = None
+    dicache_max_stat_samples: int | None = None
+    dicache_share_cfg_prefix: bool | None = None
+    dicache_schedule_variant: str | None = None
+    tags: tuple[str, ...] = ()
     description: str = ""
 
 
@@ -147,6 +181,68 @@ def get_jit_stage4a_methods() -> dict[str, GenerationMethodPreset]:
         ),
         GenerationMethodPreset(
             model_name="JiT",
+            method_name="speca_style",
+            method_type="speculative_cache",
+            reference_steps=50,
+            eval_steps=50,
+            cache_preset={"cache_layers": "all", "cache_units": "jit_blocks"},
+            deco_cache_units=None,
+            active_t_min=None,
+            active_t_max=None,
+            cache_interval=None,
+            speca_max_order=4,
+            speca_first_full_steps=3,
+            speca_base_threshold=0.1,
+            speca_decay_rate=0.01,
+            speca_min_threshold=0.01,
+            speca_min_forecast_steps=2,
+            speca_max_forecast_steps=5,
+            speca_error_metric="relative_l1",
+            speca_branch_aggregation="mean",
+            speca_verifier_module="auto",
+            speca_min_history=2,
+            description=(
+                "Adapted SpeCa-style forecast-then-verify baseline using the existing "
+                "TaylorSeer JiT block-output predictor and lightweight last-block "
+                "verification. Released-code-aligned default uses relative-L1 verification."
+            ),
+        ),
+        GenerationMethodPreset(
+            model_name="JiT",
+            method_name="dicache_style",
+            method_type="probe_cache",
+            reference_steps=50,
+            eval_steps=50,
+            cache_preset={
+                "probe_depth": 1,
+                "cache_unit": "jit_block_stack_residual",
+            },
+            deco_cache_units=None,
+            active_t_min=None,
+            active_t_max=None,
+            cache_interval=None,
+            dicache_probe_depth=1,
+            dicache_reuse_threshold=0.4,
+            dicache_error_choice="delta_y",
+            dicache_branch_aggregation="mean",
+            dicache_ret_ratio=0.2,
+            dicache_force_last_step_full=True,
+            dicache_dcta_enabled=True,
+            dicache_gamma_min=1.0,
+            dicache_gamma_max=1.5,
+            dicache_eps=1e-10,
+            dicache_max_stat_samples=4096,
+            dicache_share_cfg_prefix=False,
+            dicache_schedule_variant="released_flux_compat",
+            description=(
+                "Adapted DiCache-style baseline for JiT using online shallow-block "
+                "probing and first-order dynamic cache trajectory alignment over the "
+                "JiT image-token block-stack residual. Defaults are inspired by the "
+                "released FLUX example and are not yet validated for JiT."
+            ),
+        ),
+        GenerationMethodPreset(
+            model_name="JiT",
             method_name="reduced_steps_35",
             method_type="reduced_steps",
             reference_steps=50,
@@ -206,7 +302,7 @@ def get_jit_stage4a_methods() -> dict[str, GenerationMethodPreset]:
             description="Adapted SeaCache-style SEA-filtered accumulated-distance baseline using x_t proxy.",
         ),
     ]
-    return {method.method_name: method for method in methods}
+    return _tagged_method_map(methods)
 
 
 def get_deco_stage4a_methods() -> dict[str, GenerationMethodPreset]:
@@ -311,7 +407,7 @@ def get_deco_stage4a_methods() -> dict[str, GenerationMethodPreset]:
             description="Adapted SeaCache-style SEA-filtered accumulated-distance baseline using x_t proxy.",
         ),
     ]
-    return {method.method_name: method for method in methods}
+    return _tagged_method_map(methods)
 
 
 def get_pixelgen_stage4a_methods() -> dict[str, GenerationMethodPreset]:
@@ -417,11 +513,131 @@ def get_pixelgen_stage4a_methods() -> dict[str, GenerationMethodPreset]:
             description="Adapted SeaCache-style SEA-filtered accumulated-distance baseline using PixelGen x_t proxy.",
         ),
     ]
-    return {method.method_name: method for method in methods}
+    return _tagged_method_map(methods)
 
 
 def preset_to_json_dict(preset: GenerationMethodPreset) -> dict[str, Any]:
     return asdict(preset)
+
+
+def _default_tags(preset: GenerationMethodPreset) -> tuple[str, ...]:
+    if preset.method_name == "no_cache_50":
+        return ("reference", "proxy_default", "final_50k")
+    if preset.method_name == "teacache_style":
+        return ("diagnostic", "legacy")
+    if preset.method_name == "taylorseer_quality_i3_o3":
+        return ("diagnostic",)
+    if preset.method_type in {
+        "safe_cache",
+        "dynamic_cache",
+        "forecast_cache",
+        "speculative_cache",
+        "probe_cache",
+    }:
+        return ("main_baseline", "proxy_default")
+    if preset.method_type == "reduced_steps":
+        return ("diagnostic", "proxy_default", "final_50k")
+    if preset.method_type == "cache":
+        return ("diagnostic", "legacy", "final_50k")
+    return ("diagnostic",)
+
+
+def _tagged_method_map(
+    methods: list[GenerationMethodPreset],
+) -> dict[str, GenerationMethodPreset]:
+    tagged = [
+        method if method.tags else replace(method, tags=_default_tags(method))
+        for method in methods
+    ]
+    names = [method.method_name for method in tagged]
+    if len(names) != len(set(names)):
+        raise ValueError(f"duplicate method names for {tagged[0].model_name}: {names}")
+    return {method.method_name: method for method in tagged}
+
+
+def _methods_for_model(model_name: str) -> dict[str, GenerationMethodPreset]:
+    normalized = model_name.strip().lower()
+    if normalized == "jit":
+        return get_jit_stage4a_methods()
+    if normalized == "deco":
+        return get_deco_stage4a_methods()
+    if normalized == "pixelgen":
+        return get_pixelgen_stage4a_methods()
+    raise KeyError(f"unsupported model: {model_name}")
+
+
+def list_methods_for_model(
+    model_name: str,
+    *,
+    tags: set[str] | None = None,
+) -> list[str]:
+    methods = _methods_for_model(model_name)
+    if not tags:
+        return list(methods)
+    return [
+        name
+        for name, preset in methods.items()
+        if set(preset.tags) & set(tags)
+    ]
+
+
+def get_method_metadata(model_name: str, method_name: str) -> dict[str, Any]:
+    return preset_to_json_dict(_methods_for_model(model_name)[method_name])
+
+
+def method_supports_model(model_name: str, method_name: str) -> bool:
+    try:
+        return method_name in _methods_for_model(model_name)
+    except KeyError:
+        return False
+
+
+def method_cli_overrides(model_name: str, method_name: str) -> list[str]:
+    preset = _methods_for_model(model_name)[method_name]
+    if preset.method_type == "probe_cache":
+        return [
+            "--dicache-probe-depth", str(preset.dicache_probe_depth),
+            "--dicache-reuse-threshold", str(preset.dicache_reuse_threshold),
+            "--dicache-error-choice", str(preset.dicache_error_choice),
+            "--dicache-branch-aggregation", str(preset.dicache_branch_aggregation),
+            "--dicache-ret-ratio", str(preset.dicache_ret_ratio),
+            "--dicache-force-last-step-full" if preset.dicache_force_last_step_full else "--no-dicache-force-last-step-full",
+            "--dicache-dcta" if preset.dicache_dcta_enabled else "--no-dicache-dcta",
+            "--dicache-gamma-min", str(preset.dicache_gamma_min),
+            "--dicache-gamma-max", str(preset.dicache_gamma_max),
+            "--dicache-eps", str(preset.dicache_eps),
+            "--dicache-max-stat-samples", str(preset.dicache_max_stat_samples),
+            "--dicache-share-cfg-prefix" if preset.dicache_share_cfg_prefix else "--no-dicache-share-cfg-prefix",
+            "--dicache-schedule-variant", preset.dicache_schedule_variant or "released_flux_compat",
+        ]
+    if preset.method_type == "dynamic_cache" and preset.dynamic_cache_threshold is not None:
+        return [
+            "--dynamic-cache-threshold", str(preset.dynamic_cache_threshold),
+            "--sea-beta", str(preset.sea_beta),
+            "--sea-proxy-downsample", str(preset.sea_proxy_downsample),
+        ]
+    if preset.method_type == "forecast_cache":
+        return [
+            "--taylorseer-interval", str(preset.taylorseer_interval),
+            "--taylorseer-max-order", str(preset.taylorseer_max_order),
+            "--taylorseer-refresh-first-n-steps", str(preset.taylorseer_refresh_first_n_steps),
+            "--taylorseer-refresh-last-n-steps", str(preset.taylorseer_refresh_last_n_steps),
+        ]
+    if preset.method_type == "speculative_cache":
+        return [
+            "--speca-max-order", str(preset.speca_max_order),
+            "--speca-first-full-steps", str(preset.speca_first_full_steps),
+            "--speca-base-threshold", str(preset.speca_base_threshold),
+            "--speca-decay-rate", str(preset.speca_decay_rate),
+            "--speca-min-threshold", str(preset.speca_min_threshold),
+            "--speca-min-forecast-steps", str(preset.speca_min_forecast_steps),
+            "--speca-max-forecast-steps", str(preset.speca_max_forecast_steps),
+            "--speca-error-metric", str(preset.speca_error_metric),
+            "--speca-branch-aggregation", str(preset.speca_branch_aggregation),
+            "--speca-verifier-module", str(preset.speca_verifier_module),
+            "--speca-min-history", str(preset.speca_min_history),
+        ]
+    return []
 
 
 def list_jit_stage4a_method_names() -> list[str]:

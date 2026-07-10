@@ -37,6 +37,7 @@ def test_jit_safe_calibration_dry_run_does_not_require_checkpoint(tmp_path: Path
         check=True,
         text=True,
         capture_output=True,
+        timeout=60,
     )
     assert "No checkpoint is loaded" in result.stdout
     assert "safe_map_quality.json" in result.stdout

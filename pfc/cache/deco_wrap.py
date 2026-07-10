@@ -142,11 +142,11 @@ def wrap_deco_modules(
 
 
 def _parse_topk_spec(spec: str, candidate_set: set[str]) -> list[str]:
-    parts = spec.split(":", 2)
-    if len(parts) != 3:
+    if not spec.startswith("topk:") or ":" not in spec[len("topk:") :]:
         raise ValueError("topk spec must be topk:<candidate_csv>:<k>")
-    csv_path = Path(parts[1]).expanduser()
-    k = int(parts[2])
+    csv_text, k_text = spec[len("topk:") :].rsplit(":", 1)
+    csv_path = Path(csv_text).expanduser()
+    k = int(k_text)
     if k < 0:
         raise ValueError("topk k must be non-negative")
     rows: list[tuple[float, str]] = []

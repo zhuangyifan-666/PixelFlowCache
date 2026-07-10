@@ -20,13 +20,21 @@ from pfc.eval.generation_io import (  # noqa: E402
     append_generation_manifest,
     count_images,
     prepare_generation_dir,
+    reconcile_resume_state,
     save_image_batch_png,
     save_npz_samples,
     write_generation_meta,
 )
+from pfc.eval.provenance import collect_generation_provenance  # noqa: E402
+from pfc.eval.sharding import (  # noqa: E402
+    apply_shard_paths,
+    compute_shard_indices as _compute_shard_indices,
+)
+from pfc.eval.timing import GenerationTiming  # noqa: E402
 from pfc.adapters import JiTBoundaryAdapter  # noqa: E402
 from pfc.cache.safe_map_policy import compute_safe_map_density  # noqa: E402
-from pfc.eval.label_schedule import make_imagenet_class_balanced_labels, save_label_schedule  # noqa: E402
+from pfc.cache.speca_policy import resolve_verifier_module  # noqa: E402
+from pfc.eval.label_schedule import ensure_label_schedule, make_imagenet_class_balanced_labels, save_label_schedule  # noqa: E402
 from pfc.eval.method_presets import get_jit_stage4a_methods, preset_to_json_dict  # noqa: E402
 
 
@@ -106,6 +114,139 @@ def _taylorseer_config(args: argparse.Namespace, preset: Any) -> dict[str, Any]:
     }
 
 
+def _speca_value(args: argparse.Namespace, preset: Any, name: str, default: Any) -> Any:
+    value = getattr(args, name)
+    if value is None:
+        value = getattr(preset, name, None)
+    return default if value is None else value
+
+
+def _dicache_value(args: argparse.Namespace, preset: Any, name: str, default: Any) -> Any:
+    value = getattr(args, name)
+    if value is None:
+        value = getattr(preset, name, None)
+    return default if value is None else value
+
+
+def _declared_jit_modules(model_name: str) -> list[str]:
+    declared_depths = {
+        "JiT-B/16": 12,
+    }
+    depth = declared_depths.get(str(model_name))
+    return [f"blocks.{idx}" for idx in range(depth)] if depth is not None else []
+
+
+def _declared_jit_structure(model_name: str) -> dict[str, int | None]:
+    structures = {
+        "JiT-B/16": {"total_blocks": 12, "in_context_start": 4, "in_context_len": 32},
+    }
+    return structures.get(
+        str(model_name),
+        {"total_blocks": None, "in_context_start": None, "in_context_len": None},
+    )
+
+
+def _speca_config(
+    args: argparse.Namespace,
+    preset: Any,
+    selected_modules: list[str] | None = None,
+) -> dict[str, Any]:
+    requested = str(_speca_value(args, preset, "speca_verifier_module", "auto"))
+    selected = selected_modules if selected_modules is not None else _declared_jit_modules(args.jit_model)
+    resolved = resolve_verifier_module(selected, requested) if selected else None
+    return {
+        "baseline_name": "adapted SpeCa-style",
+        "official_reproduction": False,
+        "draft_type": "adapted TaylorSeer block-output forecasting",
+        "verification_type": "last JiT transformer block",
+        "decision_timing": "next_step",
+        "sample_adaptivity": "batch-level",
+        "speca_max_order": int(_speca_value(args, preset, "speca_max_order", 4)),
+        "speca_first_full_steps": int(_speca_value(args, preset, "speca_first_full_steps", 3)),
+        "speca_base_threshold": float(_speca_value(args, preset, "speca_base_threshold", 0.1)),
+        "speca_decay_rate": float(_speca_value(args, preset, "speca_decay_rate", 0.01)),
+        "speca_min_threshold": float(_speca_value(args, preset, "speca_min_threshold", 0.01)),
+        "speca_min_forecast_steps": int(_speca_value(args, preset, "speca_min_forecast_steps", 2)),
+        "speca_max_forecast_steps": int(_speca_value(args, preset, "speca_max_forecast_steps", 5)),
+        "speca_error_metric": str(_speca_value(args, preset, "speca_error_metric", "relative_l1")),
+        "speca_branch_aggregation": str(_speca_value(args, preset, "speca_branch_aggregation", "mean")),
+        "speca_verifier_module_requested": requested,
+        "speca_verifier_module_resolved": resolved,
+        "speca_min_history": int(_speca_value(args, preset, "speca_min_history", 2)),
+        "speca_clone_forecast": bool(args.speca_clone_forecast),
+        "speca_eps": float(args.speca_eps),
+        "speca_max_error_samples": int(args.speca_max_error_samples),
+        "speca_debug_jsonl": str(args.speca_debug_jsonl.resolve()) if args.speca_debug_jsonl else None,
+        "selected_modules": selected or "resolved_after_model_load",
+    }
+
+
+def _dicache_config(args: argparse.Namespace, preset: Any) -> dict[str, Any]:
+    structure = _declared_jit_structure(args.jit_model)
+    total_steps = int(preset.eval_steps)
+    ret_ratio = float(_dicache_value(args, preset, "dicache_ret_ratio", 0.2))
+    share_cfg_prefix = bool(
+        _dicache_value(args, preset, "dicache_share_cfg_prefix", False)
+    )
+    schedule_variant = str(
+        _dicache_value(
+            args,
+            preset,
+            "dicache_schedule_variant",
+            "released_flux_compat",
+        )
+    )
+    retention_last = min(total_steps - 1, int(ret_ratio * total_steps))
+    return {
+        "baseline_name": "adapted DiCache-style",
+        "official_reproduction": False,
+        "official_reference_backend": "FLUX released example",
+        "model_name": "JiT",
+        "model_space": "pixel",
+        "prediction_type": "xpred",
+        "solver_stage": "euler",
+        "schedule_granularity": "batch_level_shared_cfg",
+        "residual_space": "image_token_block_stack",
+        "probe_depth": int(_dicache_value(args, preset, "dicache_probe_depth", 1)),
+        "reuse_threshold": float(_dicache_value(args, preset, "dicache_reuse_threshold", 0.4)),
+        "error_choice": str(_dicache_value(args, preset, "dicache_error_choice", "delta_y")),
+        "branch_aggregation": str(
+            _dicache_value(args, preset, "dicache_branch_aggregation", "mean")
+        ),
+        "ret_ratio": ret_ratio,
+        "force_last_step_full": bool(
+            _dicache_value(args, preset, "dicache_force_last_step_full", True)
+        ),
+        "dcta_enabled": bool(_dicache_value(args, preset, "dicache_dcta_enabled", True)),
+        "gamma_min": float(_dicache_value(args, preset, "dicache_gamma_min", 1.0)),
+        "gamma_max": float(_dicache_value(args, preset, "dicache_gamma_max", 1.5)),
+        "eps": float(_dicache_value(args, preset, "dicache_eps", 1e-10)),
+        "max_stat_samples": int(
+            _dicache_value(args, preset, "dicache_max_stat_samples", 4096)
+        ),
+        "share_cfg_prefix": share_cfg_prefix,
+        "schedule_variant": schedule_variant,
+        "dicache_share_cfg_prefix": share_cfg_prefix,
+        "dicache_schedule_variant": schedule_variant,
+        "cfg_prefix_fairness_mode": (
+            "shared_prefix_ablation"
+            if share_cfg_prefix
+            else "strict_no_cache_matched"
+        ),
+        "cfg_prefix_ablation_name": (
+            "dicache_style_shared_cfg_prefix" if share_cfg_prefix else None
+        ),
+        "decision_rule": "strict_lt",
+        "clone_history": bool(args.dicache_clone_history),
+        "force_full": bool(args.dicache_force_full),
+        "debug_jsonl": str(args.dicache_debug_jsonl.resolve()) if args.dicache_debug_jsonl else None,
+        "debug_sync_overhead_enabled": args.dicache_debug_jsonl is not None,
+        "retention_full_last_step_idx": retention_last,
+        "retention_full_step_count": retention_last + 1,
+        **structure,
+    }
+
+
 def _resolved_method_meta(args: argparse.Namespace, preset: Any) -> dict[str, Any]:
     method = preset_to_json_dict(preset)
     if preset.method_type == "dynamic_cache":
@@ -142,13 +283,28 @@ def _resolved_method_meta(args: argparse.Namespace, preset: Any) -> dict[str, An
                 **_taylorseer_config(args, preset),
             }
         )
+    elif preset.method_type == "speculative_cache":
+        cache_preset = preset.cache_preset or {}
+        method.update(
+            {
+                "cache_units": cache_preset.get("cache_units", "jit_blocks"),
+                **_speca_config(args, preset),
+            }
+        )
+    elif preset.method_type == "probe_cache":
+        method.update(
+            {
+                "cache_units": "jit_block_stack_residual",
+                **_dicache_config(args, preset),
+            }
+        )
     return method
 
 
 def _pixbfc_static_meta(method_type: str) -> dict[str, Any]:
     adapter = JiTBoundaryAdapter()
     boundary_set = None
-    if method_type in {"cache", "safe_cache", "dynamic_cache", "forecast_cache"}:
+    if method_type in {"cache", "safe_cache", "dynamic_cache", "forecast_cache", "speculative_cache"}:
         boundary_set = {
             "name": "jit_whole_backbone",
             "description": "Resolved to concrete JiT block names after model construction.",
@@ -197,18 +353,7 @@ def load_jit_runtime_helpers() -> tuple[Any, Any, Any]:
 
 
 def compute_shard_indices(num_images: int, num_shards: int, shard_index: int, shard_mode: str) -> list[int]:
-    if num_shards <= 0:
-        raise ValueError("num_shards must be positive")
-    if shard_index < 0 or shard_index >= num_shards:
-        raise ValueError("shard_index must satisfy 0 <= shard_index < num_shards")
-    if shard_mode == "strided":
-        return [idx for idx in range(num_images) if idx % num_shards == shard_index]
-    if shard_mode == "contiguous":
-        base, extra = divmod(num_images, num_shards)
-        start = shard_index * base + min(shard_index, extra)
-        end = start + base + (1 if shard_index < extra else 0)
-        return list(range(start, end))
-    raise ValueError(f"Unsupported shard_mode: {shard_mode}")
+    return _compute_shard_indices(num_images, num_shards, shard_index, shard_mode)
 
 
 def _chunked(values: list[int], chunk_size: int) -> list[list[int]]:
@@ -216,28 +361,23 @@ def _chunked(values: list[int], chunk_size: int) -> list[list[int]]:
 
 
 def _apply_shard_paths(paths: dict[str, Path], args: argparse.Namespace) -> dict[str, Path]:
+    paths = apply_shard_paths(
+        paths,
+        num_shards=args.num_shards,
+        shard_index=args.shard_index,
+        suffix=args.manifest_suffix,
+    )
     if args.num_shards <= 1:
         return paths
     suffix = args.manifest_suffix or f"_shard{args.shard_index}"
     base = paths["base_dir"]
-    paths = dict(paths)
-    paths["manifest"] = base / f"manifest{suffix}.jsonl"
-    paths["generation_meta"] = base / f"generation_meta{suffix}.json"
-    paths["latency"] = base / f"latency{suffix}.json"
-    paths["cache_stats"] = base / f"cache_stats{suffix}.json"
     paths["labels_json_shard"] = base / f"labels{suffix}.json"
     paths["labels_csv_shard"] = base / f"labels{suffix}.csv"
     return paths
 
 
 def _write_label_schedule_if_same(labels: list[int], base_dir: Path) -> None:
-    json_path = base_dir / "labels.json"
-    if json_path.exists():
-        existing = json.loads(json_path.read_text(encoding="utf-8")).get("labels", [])
-        if [int(item) for item in existing] != [int(item) for item in labels]:
-            raise RuntimeError(f"Existing label schedule differs: {json_path}")
-        return
-    save_label_schedule(labels, base_dir)
+    ensure_label_schedule(labels, base_dir)
 
 
 def _write_shard_label_schedule(labels: list[int], indices: list[int], paths: dict[str, Path]) -> None:
@@ -258,12 +398,24 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
 
     from pfc.cache.cache_state import RuntimeCacheState
     from pfc.cache.dynamic_policy_adapter import DynamicPolicyAdapter
+    from pfc.cache.dicache_policy import DiCachePolicy
     from pfc.cache.fixed_interval_policy import FixedIntervalCachePolicy
     from pfc.cache.safe_map_policy import SafeMapCachePolicy
+    from pfc.cache.speca_policy import SpeCaCachePolicy
     from pfc.cache.spectral_dynamic_policy import RawAccumulatedDistancePolicy, SeaCacheSpectralDistancePolicy
     from pfc.cache.taylorseer_policy import TaylorSeerCachePolicy
+    from pfc.eval.jit_dicache_runtime import JiTDiCacheExecutor, sample_jit_dicache
 
     JiTRuntimeConfig, load_jit_model, sample_jit = load_jit_runtime_helpers()
+
+    generation_started_utc = datetime.now(timezone.utc).isoformat()
+    end_to_end_started = time.perf_counter()
+    timing = GenerationTiming(
+        requested_images=args.num_images,
+        resume=args.resume,
+        num_shards=args.num_shards,
+        shard_index=args.shard_index,
+    )
 
     if args.save_npz and args.num_images > 5000:
         raise RuntimeError("--save-npz is intended for small/proxy Stage 4A runs, not large 50k runs")
@@ -273,10 +425,19 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         raise RuntimeError("CUDA was requested but is not available in this process")
     labels = make_imagenet_class_balanced_labels(args.num_images)
     paths = resolved["paths"]
-    shard_indices = compute_shard_indices(args.num_images, args.num_shards, args.shard_index, args.shard_mode)
-    if args.num_shards == 1 or args.shard_index == 0:
-        _write_label_schedule_if_same(labels, paths["base_dir"])
-    _write_shard_label_schedule(labels, shard_indices, paths)
+    all_shard_indices = compute_shard_indices(args.num_images, args.num_shards, args.shard_index, args.shard_mode)
+    _write_label_schedule_if_same(labels, paths["base_dir"])
+    _write_shard_label_schedule(labels, all_shard_indices, paths)
+    reconciliation = reconcile_resume_state(
+        all_shard_indices,
+        labels,
+        paths["image_dir"],
+        paths["manifest"],
+        resume=args.resume,
+        save_png=args.save_png,
+    )
+    shard_indices = reconciliation.pending_indices
+    resolved["meta"]["resume_reconciliation"] = reconciliation.to_dict()
     config = JiTRuntimeConfig(
         jit_dir=args.jit_dir.resolve(),
         ckpt_dir=args.jit_ckpt_dir.resolve(),
@@ -302,16 +463,20 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         warmup_runs=0,
         save_previews=False,
     )
-    model = load_jit_model(config, device)
+    with timing.measure("model_load_latency_sec"):
+        model = load_jit_model(config, device)
     boundary_adapter = JiTBoundaryAdapter()
     cache_state: RuntimeCacheState | None = None
     dynamic_policy: RawAccumulatedDistancePolicy | SeaCacheSpectralDistancePolicy | None = None
     safe_policy: SafeMapCachePolicy | None = None
     taylorseer_policy: TaylorSeerCachePolicy | None = None
+    speca_policy: SpeCaCachePolicy | None = None
+    dicache_policy: DiCachePolicy | None = None
+    dicache_executor: JiTDiCacheExecutor | None = None
     if preset.method_type == "cache":
         boundary_set = boundary_adapter.default_boundary_set(model, args.method)
         selected_modules = list(boundary_set.module_names())
-        cache_state = RuntimeCacheState(model_name="JiT", enabled=True)
+        cache_state = RuntimeCacheState(model_name="JiT", enabled=True, clone_on_store=args.clone_cache_on_store)
         policy = FixedIntervalCachePolicy.from_branches(
             {"cond", "uncond"},
             enabled=True,
@@ -330,7 +495,7 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
             raise ValueError("--safe-map is required for Safe-BFC generation")
         boundary_set = boundary_adapter.default_boundary_set(model, args.method)
         selected_modules = list(boundary_set.module_names())
-        cache_state = RuntimeCacheState(model_name="JiT", enabled=bool(selected_modules))
+        cache_state = RuntimeCacheState(model_name="JiT", enabled=bool(selected_modules), clone_on_store=args.clone_cache_on_store)
         safe_policy = SafeMapCachePolicy.from_path(
             args.safe_map,
             enabled=bool(selected_modules),
@@ -354,7 +519,7 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     elif preset.method_type == "forecast_cache":
         boundary_set = boundary_adapter.default_boundary_set(model, args.method)
         selected_modules = list(boundary_set.module_names())
-        cache_state = RuntimeCacheState(model_name="JiT", enabled=bool(selected_modules))
+        cache_state = RuntimeCacheState(model_name="JiT", enabled=bool(selected_modules), clone_on_store=args.clone_cache_on_store)
         taylorseer_policy = TaylorSeerCachePolicy(
             enabled=bool(selected_modules),
             model_name="JiT",
@@ -378,6 +543,80 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         resolved["meta"]["boundary_set"] = boundary_set.to_dict()
         resolved["meta"]["taylorseer_policy"] = taylorseer_policy.to_dict()
         resolved["meta"].update(_taylorseer_config(args, preset))
+    elif preset.method_type == "speculative_cache":
+        boundary_set = boundary_adapter.default_boundary_set(model, args.method)
+        selected_modules = list(boundary_set.module_names())
+        verifier_requested = str(_speca_value(args, preset, "speca_verifier_module", "auto"))
+        cache_state = RuntimeCacheState(model_name="JiT", enabled=bool(selected_modules), clone_on_store=args.clone_cache_on_store)
+        speca_policy = SpeCaCachePolicy(
+            enabled=bool(selected_modules),
+            model_name="JiT",
+            cache_modules=set(selected_modules),
+            max_order=int(_speca_value(args, preset, "speca_max_order", 4)),
+            first_full_steps=int(_speca_value(args, preset, "speca_first_full_steps", 3)),
+            base_threshold=float(_speca_value(args, preset, "speca_base_threshold", 0.1)),
+            decay_rate=float(_speca_value(args, preset, "speca_decay_rate", 0.01)),
+            min_threshold=float(_speca_value(args, preset, "speca_min_threshold", 0.01)),
+            min_forecast_steps=int(_speca_value(args, preset, "speca_min_forecast_steps", 2)),
+            max_forecast_steps=int(_speca_value(args, preset, "speca_max_forecast_steps", 5)),
+            error_metric=str(_speca_value(args, preset, "speca_error_metric", "relative_l1")),
+            branch_aggregation=str(_speca_value(args, preset, "speca_branch_aggregation", "mean")),
+            min_history=int(_speca_value(args, preset, "speca_min_history", 2)),
+            verifier_module=verifier_requested,
+            solver_stages={"euler"},
+            branches={"cond", "uncond", "global"},
+            verification_branches=("cond", "uncond"),
+            fallback_to_global_branch=True,
+            clone_forecast=args.speca_clone_forecast,
+            debug_jsonl_path=args.speca_debug_jsonl,
+            total_steps=preset.eval_steps,
+            eps=args.speca_eps,
+            max_verification_error_samples=args.speca_max_error_samples,
+        )
+        boundary_adapter.wrap_boundary_set(model, boundary_set, cache_state, speca_policy)
+        resolved["meta"].update(_speca_config(args, preset, selected_modules))
+        resolved["meta"]["method_type"] = "speculative_cache"
+        resolved["meta"]["selected_modules"] = selected_modules
+        resolved["meta"]["cache_units"] = "jit_blocks"
+        resolved["meta"]["boundary_set"] = boundary_set.to_dict()
+        resolved["meta"]["speca_policy"] = speca_policy.to_dict()
+        resolved["meta"]["speca_verifier_module_requested"] = speca_policy.verifier_module_requested
+        resolved["meta"]["speca_verifier_module_resolved"] = speca_policy.verifier_module_resolved
+    elif preset.method_type == "probe_cache":
+        settings = _dicache_config(args, preset)
+        dicache_executor = JiTDiCacheExecutor(model.net)
+        dicache_policy = DiCachePolicy(
+            total_blocks=dicache_executor.total_blocks,
+            total_steps=preset.eval_steps,
+            probe_depth=settings["probe_depth"],
+            reuse_threshold=settings["reuse_threshold"],
+            error_choice=settings["error_choice"],
+            branch_aggregation=settings["branch_aggregation"],
+            ret_ratio=settings["ret_ratio"],
+            force_last_step_full=settings["force_last_step_full"],
+            dcta_enabled=settings["dcta_enabled"],
+            gamma_min=settings["gamma_min"],
+            gamma_max=settings["gamma_max"],
+            eps=settings["eps"],
+            clone_history=settings["clone_history"],
+            debug_jsonl=args.dicache_debug_jsonl,
+            max_error_samples=settings["max_stat_samples"],
+            schedule_variant=settings["schedule_variant"],
+            share_cfg_prefix=settings["share_cfg_prefix"],
+            force_full=settings["force_full"],
+        )
+        settings.update(
+            {
+                "total_blocks": dicache_executor.total_blocks,
+                "in_context_start": int(model.net.in_context_start),
+                "in_context_len": int(model.net.in_context_len),
+            }
+        )
+        resolved["meta"].update(settings)
+        resolved["meta"]["dicache_cache"] = settings
+        resolved["meta"]["cache_units"] = "jit_block_stack_residual"
+        resolved["meta"]["selected_modules"] = []
+        resolved["meta"]["boundary_set"] = None
     elif preset.method_type == "dynamic_cache":
         boundary_set = boundary_adapter.default_boundary_set(model, args.method)
         selected_modules = list(boundary_set.module_names())
@@ -398,7 +637,7 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
             )
         else:
             dynamic_policy = RawAccumulatedDistancePolicy(**policy_kwargs)
-        cache_state = RuntimeCacheState(model_name="JiT", enabled=bool(selected_modules))
+        cache_state = RuntimeCacheState(model_name="JiT", enabled=bool(selected_modules), clone_on_store=args.clone_cache_on_store)
         adapter = DynamicPolicyAdapter.from_branches(
             dynamic_policy,
             {"cond", "uncond"},
@@ -410,54 +649,131 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
         resolved["meta"]["boundary_set"] = boundary_set.to_dict()
         boundary_adapter.wrap_boundary_set(model, boundary_set, cache_state, adapter)
 
+    if args.warmup_batches and shard_indices:
+        warm_indices = shard_indices[: min(args.batch_size, len(shard_indices))]
+        with timing.measure("warmup_latency_sec", device=device, synchronize=True):
+            with torch.no_grad():
+                for warmup_index in range(args.warmup_batches):
+                    warm_labels = torch.tensor(
+                        [labels[index] for index in warm_indices],
+                        device=device,
+                        dtype=torch.long,
+                    )
+                    warm_noise = _make_noise_for_indices(
+                        warm_indices,
+                        args.seed + 1_000_000 + warmup_index,
+                        args.img_size,
+                        args.noise_scale,
+                        device,
+                    )
+                    warm_config = replace(
+                        config,
+                        num_samples=len(warm_indices),
+                        batch_size=len(warm_indices),
+                        dynamic_proxy_downsample=args.sea_proxy_downsample,
+                    )
+                    if cache_state is not None:
+                        cache_state.begin_batch(session_id=f"{args.run_id}:warmup:{warmup_index}")
+                    if taylorseer_policy is not None:
+                        taylorseer_policy.clear_batch()
+                    if speca_policy is not None:
+                        speca_policy.clear_batch()
+                    if dicache_policy is not None and dicache_executor is not None:
+                        sample_jit_dicache(
+                            model,
+                            warm_labels,
+                            warm_noise,
+                            warm_config,
+                            executor=dicache_executor,
+                            policy=dicache_policy,
+                            mode=args.method,
+                        )
+                    else:
+                        sample_jit(
+                            model,
+                            warm_labels,
+                            warm_noise,
+                            warm_config,
+                            mode=args.method,
+                            cache_state=cache_state,
+                            dynamic_policy=dynamic_policy,
+                        )
+        if cache_state is not None:
+            cache_state.clear()
+            cache_state.reset_stats()
+        if dynamic_policy is not None:
+            dynamic_policy.reset()
+        if safe_policy is not None:
+            safe_policy.reset_runtime_state()
+            safe_policy.reset_stats()
+        if taylorseer_policy is not None:
+            taylorseer_policy.reset_runtime_state()
+            taylorseer_policy.reset_stats()
+        if speca_policy is not None:
+            speca_policy.reset_runtime_state()
+            speca_policy.reset_stats()
+        if dicache_policy is not None:
+            dicache_policy.reset_runtime_state()
+            dicache_policy.reset_stats()
+
     samples_for_npz = []
     labels_for_npz: list[int] = []
     generated = 0
-    existing_images_skipped = 0
-    start = time.perf_counter()
+    existing_images_skipped = len(reconciliation.complete_indices)
     if device.type == "cuda":
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats(device)
-        torch.cuda.synchronize(device)
     debug_handle, dynamic_decision_writer = _dynamic_writer(args.dynamic_cache_debug_jsonl)
     try:
         for indices in _chunked(shard_indices, args.batch_size):
-            if args.resume and args.save_png:
-                pending_indices = [index for index in indices if not (paths["image_dir"] / f"{index:06d}.png").exists()]
-                existing_images_skipped += len(indices) - len(pending_indices)
-                indices = pending_indices
-                if not indices:
-                    continue
-            batch_labels_list = [labels[index] for index in indices]
-            batch_labels = torch.tensor(batch_labels_list, device=device, dtype=torch.long)
-            noise = _make_noise_for_indices(indices, args.seed, args.img_size, args.noise_scale, device)
-            batch_config = replace(
-                config,
-                num_samples=len(indices),
-                batch_size=len(indices),
-                dynamic_proxy_downsample=args.sea_proxy_downsample,
-            )
+            with timing.measure("input_prepare_latency_sec"):
+                batch_labels_list = [labels[index] for index in indices]
+                batch_labels = torch.tensor(batch_labels_list, device=device, dtype=torch.long)
+                noise = _make_noise_for_indices(indices, args.seed, args.img_size, args.noise_scale, device)
+                batch_config = replace(
+                    config,
+                    num_samples=len(indices),
+                    batch_size=len(indices),
+                    dynamic_proxy_downsample=args.sea_proxy_downsample,
+                )
             if cache_state is not None:
-                cache_state.clear_entries()
+                cache_state.begin_batch(session_id=f"{args.run_id}:{indices[0]}")
             if taylorseer_policy is not None:
                 taylorseer_policy.clear_batch()
-            with torch.no_grad():
-                output, _records = sample_jit(
-                    model,
-                    batch_labels,
-                    noise,
-                    batch_config,
-                    mode=args.method,
-                    cache_state=cache_state,
-                    dynamic_policy=dynamic_policy,
-                    dynamic_decision_writer=dynamic_decision_writer,
-                )
-            output_cpu = output.detach().cpu()
+            if speca_policy is not None:
+                speca_policy.clear_batch()
+            with timing.measure("sampling_latency_sec", device=device, synchronize=True):
+                with torch.no_grad():
+                    if dicache_policy is not None and dicache_executor is not None:
+                        output, _records = sample_jit_dicache(
+                            model,
+                            batch_labels,
+                            noise,
+                            batch_config,
+                            executor=dicache_executor,
+                            policy=dicache_policy,
+                            mode=args.method,
+                        )
+                    else:
+                        output, _records = sample_jit(
+                            model,
+                            batch_labels,
+                            noise,
+                            batch_config,
+                            mode=args.method,
+                            cache_state=cache_state,
+                            dynamic_policy=dynamic_policy,
+                            dynamic_decision_writer=dynamic_decision_writer,
+                        )
+            with timing.measure("postprocess_latency_sec"):
+                output_cpu = output.detach().cpu()
             if args.save_png:
-                records = save_image_batch_png(output_cpu, batch_labels_list, indices, paths["image_dir"])
+                with timing.measure("png_save_latency_sec"):
+                    records = save_image_batch_png(output_cpu, batch_labels_list, indices, paths["image_dir"])
             else:
                 records = [{"index": index, "label": int(label)} for index, label in zip(indices, batch_labels_list)]
-            append_generation_manifest(paths["manifest"], records)
+            with timing.measure("manifest_latency_sec"):
+                append_generation_manifest(paths["manifest"], records)
             if args.save_npz:
                 samples_for_npz.append(output_cpu)
                 labels_for_npz.extend(batch_labels_list)
@@ -465,14 +781,10 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     finally:
         if debug_handle is not None:
             debug_handle.close()
-    if device.type == "cuda":
-        torch.cuda.synchronize(device)
-        peak_memory = int(torch.cuda.max_memory_allocated(device))
-    else:
-        peak_memory = 0
-    latency = time.perf_counter() - start
-    if args.save_npz:
-        save_npz_samples(torch.cat(samples_for_npz, dim=0), labels_for_npz, paths["samples_npz"])
+    peak_memory = int(torch.cuda.max_memory_allocated(device)) if device.type == "cuda" else 0
+    if args.save_npz and samples_for_npz:
+        with timing.measure("npz_save_latency_sec"):
+            save_npz_samples(torch.cat(samples_for_npz, dim=0), labels_for_npz, paths["samples_npz"])
     cache_stats = cache_state.summary() if cache_state is not None else {"enabled": False, "hit_rate": 0.0}
     if dynamic_policy is not None:
         cache_stats["dynamic_cache"] = dynamic_policy.summary()
@@ -485,22 +797,44 @@ def _run_real(args: argparse.Namespace, resolved: dict[str, Any]) -> int:
     if taylorseer_policy is not None:
         cache_stats["taylorseer_policy"] = taylorseer_policy.summary()
         resolved["meta"]["taylorseer_policy_summary"] = taylorseer_policy.summary()
-    write_generation_meta(paths["latency"], {
-        "latency_sec": latency,
-        "images_per_sec": generated / latency if latency > 0 else float("inf"),
+    if speca_policy is not None:
+        speca_summary = speca_policy.summary()
+        runtime_summary = cache_state.summary() if cache_state is not None else {"enabled": False}
+        cache_stats["runtime_cache"] = runtime_summary
+        cache_stats["speca_policy"] = speca_summary
+        cache_stats["verification_overhead_stats"] = speca_policy.verification_overhead_stats()
+        resolved["meta"]["speca_policy_summary"] = speca_summary
+    if dicache_policy is not None:
+        dicache_summary = dicache_policy.summary()
+        cache_stats["dicache_policy"] = dicache_summary
+        resolved["meta"]["dicache_policy_summary"] = dicache_summary
+    timing.generated_images_this_run = generated
+    timing.existing_images_skipped = existing_images_skipped
+    timing.total_images_available = count_images(paths["image_dir"])
+    timing.peak_memory_allocated_bytes = peak_memory
+    timing.end_to_end_latency_sec = time.perf_counter() - end_to_end_started
+    latency_payload = {
+        **timing.to_dict(),
         "generated_images": generated,
-        "requested_images": args.num_images,
-        "generated_images_this_run": generated,
-        "existing_images_skipped": existing_images_skipped,
-        "total_shard_images": len(shard_indices),
-        "total_images_available": count_images(paths["image_dir"]),
-        "resume": args.resume,
-        "num_shards": args.num_shards,
-        "shard_index": args.shard_index,
+        "total_shard_images": len(all_shard_indices),
         "shard_mode": args.shard_mode,
-        "peak_memory_allocated_bytes": peak_memory,
-    })
+    }
+    write_generation_meta(paths["latency"], latency_payload)
     write_generation_meta(paths["cache_stats"], cache_stats)
+    resolved["meta"].update(
+        {
+            "generation_start_utc": generation_started_utc,
+            "generation_end_utc": datetime.now(timezone.utc).isoformat(),
+            "timing_scope": timing.timing_scope,
+            "timing_schema_version": 2,
+            "clone_cache_on_store": args.clone_cache_on_store,
+            "provenance": collect_generation_provenance(
+                ROOT,
+                checkpoint_path=args.jit_ckpt_dir / "checkpoint-last.pth",
+                hash_checkpoint=args.hash_checkpoints,
+            ),
+        }
+    )
     write_generation_meta(paths["generation_meta"], resolved["meta"])
     print(paths["base_dir"])
     return 0
@@ -519,6 +853,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--save-npz", dest="save_npz", action="store_true", default=False)
     parser.add_argument("--no-save-npz", dest="save_npz", action="store_false")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--allow-partial-npz", action="store_true")
+    parser.add_argument("--hash-checkpoints", action="store_true")
+    parser.add_argument("--clone-cache-on-store", action="store_true")
+    parser.add_argument("--warmup-batches", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--run-id")
     parser.add_argument("--jit-dir", type=Path, default=ROOT / "third_party/JiT")
@@ -543,6 +881,58 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--taylorseer-debug-jsonl", type=Path)
     parser.add_argument("--taylorseer-clone-forecast", action="store_true")
     parser.add_argument("--taylorseer-min-history", type=int, default=2)
+    parser.add_argument("--speca-max-order", type=int)
+    parser.add_argument("--speca-first-full-steps", type=int)
+    parser.add_argument("--speca-base-threshold", type=float)
+    parser.add_argument("--speca-decay-rate", type=float)
+    parser.add_argument("--speca-min-threshold", type=float)
+    parser.add_argument("--speca-min-forecast-steps", type=int)
+    parser.add_argument("--speca-max-forecast-steps", type=int)
+    parser.add_argument(
+        "--speca-error-metric",
+        choices=("l1", "l2", "relative_l1", "relative_l2", "cosine_error"),
+    )
+    parser.add_argument("--speca-branch-aggregation", choices=("mean", "max"))
+    parser.add_argument("--speca-verifier-module")
+    parser.add_argument("--speca-min-history", type=int)
+    parser.add_argument("--speca-debug-jsonl", type=Path)
+    parser.add_argument("--speca-clone-forecast", action="store_true")
+    parser.add_argument("--speca-eps", type=float, default=1e-10)
+    parser.add_argument("--speca-max-error-samples", type=int, default=4096)
+    parser.add_argument("--dicache-probe-depth", type=int)
+    parser.add_argument("--dicache-reuse-threshold", type=float)
+    parser.add_argument("--dicache-error-choice", choices=("delta_y", "delta_minus"))
+    parser.add_argument("--dicache-branch-aggregation", choices=("mean", "max"))
+    parser.add_argument("--dicache-ret-ratio", type=float)
+    parser.add_argument(
+        "--dicache-force-last-step-full",
+        dest="dicache_force_last_step_full",
+        action="store_true",
+        default=None,
+    )
+    parser.add_argument(
+        "--no-dicache-force-last-step-full",
+        dest="dicache_force_last_step_full",
+        action="store_false",
+    )
+    parser.add_argument("--dicache-dcta", dest="dicache_dcta_enabled", action="store_true", default=None)
+    parser.add_argument("--no-dicache-dcta", dest="dicache_dcta_enabled", action="store_false")
+    parser.add_argument("--dicache-gamma-min", type=float)
+    parser.add_argument("--dicache-gamma-max", type=float)
+    parser.add_argument("--dicache-eps", type=float)
+    parser.add_argument("--dicache-max-stat-samples", type=int)
+    parser.add_argument("--dicache-debug-jsonl", type=Path)
+    parser.add_argument("--dicache-clone-history", action="store_true")
+    parser.add_argument("--dicache-force-full", action="store_true")
+    parser.add_argument(
+        "--dicache-share-cfg-prefix",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    parser.add_argument(
+        "--dicache-schedule-variant",
+        choices=("released_flux_compat",),
+    )
     parser.add_argument("--safe-map", type=Path)
     parser.add_argument("--safe-map-mode", choices=("quality", "speed", "custom"), default="custom")
     parser.add_argument("--safe-debug-jsonl", type=Path)
@@ -566,6 +956,8 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
     paths = _apply_shard_paths(paths, args)
     dynamic_threshold = _dynamic_threshold(args, preset) if preset.method_type == "dynamic_cache" else None
     taylorseer_settings = _taylorseer_config(args, preset) if preset.method_type == "forecast_cache" else None
+    speca_settings = _speca_config(args, preset) if preset.method_type == "speculative_cache" else None
+    dicache_settings = _dicache_config(args, preset) if preset.method_type == "probe_cache" else None
     safe_density = _safe_map_density_from_path(args.safe_map) if preset.method_type == "safe_cache" else None
     meta = {
         "model_name": preset.model_name,
@@ -582,10 +974,18 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
             "jit_safe_whole_backbone"
             if preset.method_type == "safe_cache"
             else "jit_blocks"
-            if preset.method_type in {"dynamic_cache", "forecast_cache"}
+            if preset.method_type in {"dynamic_cache", "forecast_cache", "speculative_cache"}
+            else "jit_block_stack_residual"
+            if preset.method_type == "probe_cache"
             else None
         ),
-        "selected_modules": (preset.cache_preset or {}).get("cache_layers") if preset.cache_preset else None,
+        "selected_modules": (
+            []
+            if preset.method_type == "probe_cache"
+            else (preset.cache_preset or {}).get("cache_layers")
+            if preset.cache_preset
+            else None
+        ),
         "dynamic_cache_type": preset.dynamic_cache_type,
         "dynamic_cache_threshold": dynamic_threshold,
         "resolved_dynamic_cache_threshold": dynamic_threshold,
@@ -594,11 +994,23 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
         "save_png": args.save_png,
         "save_npz": args.save_npz,
         "resume": args.resume,
+        "allow_partial_npz": args.allow_partial_npz,
+        "partial_npz": bool(args.resume and args.save_npz and args.allow_partial_npz),
+        "warmup_batches": args.warmup_batches,
+        "clone_cache_on_store": args.clone_cache_on_store,
         "jit_dir": str(args.jit_dir.resolve()),
         "jit_ckpt_dir": str(args.jit_ckpt_dir.resolve()),
         "checkpoint_exists": _checkpoint_ok(args.jit_ckpt_dir.resolve()),
         "device": args.device,
+        "device_type": str(args.device).split(":", 1)[0],
+        "dtype": "float32",
+        "amp_enabled": False,
+        "autocast_enabled": False,
+        "compile_enabled": False,
         "cfg": args.cfg,
+        "cfg_interval": [0.1, 1.0],
+        "sampler": "euler",
+        "solver": "euler",
         "img_size": args.img_size,
         "noise_scale": args.noise_scale,
         "run_id": run_id,
@@ -629,18 +1041,28 @@ def resolve_config(args: argparse.Namespace) -> dict[str, Any]:
             "allow_empty_safe_map": args.allow_empty_safe_map,
         },
         "taylorseer_cache": taylorseer_settings,
+        "speca_cache": speca_settings,
+        "dicache_cache": dicache_settings,
         **_pixbfc_static_meta(preset.method_type),
     }
+    if speca_settings is not None:
+        meta.update(speca_settings)
+    if dicache_settings is not None:
+        meta.update(dicache_settings)
     return {"meta": meta, "paths": paths}
 
 
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    if args.resume and not args.save_png:
+        raise ValueError("Resume requires PNG completion markers in the current implementation.")
     if args.num_images <= 0:
         parser.error("--num-images must be positive")
     if args.batch_size <= 0:
         parser.error("--batch-size must be positive")
+    if args.warmup_batches < 0:
+        parser.error("--warmup-batches must be non-negative")
     if args.num_shards <= 0:
         parser.error("--num-shards must be positive")
     if args.shard_index < 0 or args.shard_index >= args.num_shards:
@@ -663,8 +1085,52 @@ def main() -> int:
         parser.error("--taylorseer-refresh-first-n-steps must be non-negative")
     if args.taylorseer_refresh_last_n_steps is not None and args.taylorseer_refresh_last_n_steps < 0:
         parser.error("--taylorseer-refresh-last-n-steps must be non-negative")
-    os.environ.setdefault("CUDA_VISIBLE_DEVICES", os.environ.get("PFC_CUDA_DEVICES", "0"))
+    if args.speca_max_order is not None and args.speca_max_order < 0:
+        parser.error("--speca-max-order must be non-negative")
+    if args.speca_first_full_steps is not None and args.speca_first_full_steps < 0:
+        parser.error("--speca-first-full-steps must be non-negative")
+    if args.speca_base_threshold is not None and args.speca_base_threshold <= 0.0:
+        parser.error("--speca-base-threshold must be positive")
+    if args.speca_decay_rate is not None and not 0.0 < args.speca_decay_rate <= 1.0:
+        parser.error("--speca-decay-rate must satisfy 0 < value <= 1")
+    if args.speca_min_threshold is not None and args.speca_min_threshold <= 0.0:
+        parser.error("--speca-min-threshold must be positive")
+    if args.speca_min_forecast_steps is not None and args.speca_min_forecast_steps <= 0:
+        parser.error("--speca-min-forecast-steps must be positive")
+    if args.speca_max_forecast_steps is not None and args.speca_max_forecast_steps <= 0:
+        parser.error("--speca-max-forecast-steps must be positive")
+    if args.speca_min_history is not None and args.speca_min_history <= 0:
+        parser.error("--speca-min-history must be positive")
+    if args.speca_eps <= 0.0:
+        parser.error("--speca-eps must be positive")
+    if args.speca_max_error_samples <= 0:
+        parser.error("--speca-max-error-samples must be positive")
+    if args.dicache_probe_depth is not None and args.dicache_probe_depth <= 0:
+        parser.error("--dicache-probe-depth must be positive")
+    if args.dicache_reuse_threshold is not None and args.dicache_reuse_threshold <= 0.0:
+        parser.error("--dicache-reuse-threshold must be positive")
+    if args.dicache_ret_ratio is not None and not 0.0 <= args.dicache_ret_ratio < 1.0:
+        parser.error("--dicache-ret-ratio must satisfy 0 <= value < 1")
+    if args.dicache_gamma_min is not None and args.dicache_gamma_min < 0.0:
+        parser.error("--dicache-gamma-min must be non-negative")
+    if args.dicache_eps is not None and args.dicache_eps <= 0.0:
+        parser.error("--dicache-eps must be positive")
+    if args.dicache_max_stat_samples is not None and args.dicache_max_stat_samples <= 0:
+        parser.error("--dicache-max-stat-samples must be positive")
     resolved = resolve_config(args)
+    speca_settings = resolved["meta"].get("speca_cache")
+    if speca_settings is not None:
+        if speca_settings["speca_min_threshold"] > speca_settings["speca_base_threshold"]:
+            parser.error("--speca-min-threshold must not exceed --speca-base-threshold")
+        if speca_settings["speca_max_forecast_steps"] < speca_settings["speca_min_forecast_steps"]:
+            parser.error("--speca-max-forecast-steps must be >= --speca-min-forecast-steps")
+    dicache_settings = resolved["meta"].get("dicache_cache")
+    if dicache_settings is not None:
+        total_blocks = dicache_settings.get("total_blocks")
+        if total_blocks is not None and not 1 <= dicache_settings["probe_depth"] < total_blocks:
+            parser.error("--dicache-probe-depth must be smaller than the JiT block count")
+        if dicache_settings["gamma_min"] > dicache_settings["gamma_max"]:
+            parser.error("--dicache-gamma-min must not exceed --dicache-gamma-max")
     if args.dry_run:
         _print_dry_run({"meta": resolved["meta"], "paths": resolved["paths"]})
         safe_density = resolved["meta"].get("safe_cache", {}).get("safe_map_density")
@@ -673,6 +1139,11 @@ def main() -> int:
         if not resolved["meta"]["checkpoint_exists"]:
             print(f"Missing JiT checkpoint: {args.jit_ckpt_dir / 'checkpoint-last.pth'}")
         return 0
+    if args.resume and args.save_npz and not args.allow_partial_npz:
+        raise ValueError(
+            "NPZ resume is not supported because the in-memory tensor set may be incomplete."
+        )
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", os.environ.get("PFC_CUDA_DEVICES", "0"))
     if get_jit_stage4a_methods()[args.method].method_type == "safe_cache":
         if args.safe_map is None:
             parser.error("--safe-map is required for method_type=safe_cache")

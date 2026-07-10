@@ -257,6 +257,22 @@ class SafeMapCachePolicy:
             self._by_reason["entry_mismatch_refresh"] += 1
             self._by_step[int(step_idx)]["entry_mismatch_refresh"] += 1
 
+    def reset_stats(self) -> None:
+        self._stats = self._empty_stats()
+        self._reuse_ages.clear()
+        self._by_reason.clear()
+        self._by_boundary.clear()
+        self._by_age.clear()
+        self._by_step.clear()
+        self._by_branch.clear()
+        self._by_solver_stage.clear()
+
+    def reset_runtime_state(self) -> None:
+        """Safe-map decisions have no policy-owned batch history to clear."""
+
+    def clear_batch(self) -> None:
+        self.reset_runtime_state()
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "policy_name": self.policy_name,

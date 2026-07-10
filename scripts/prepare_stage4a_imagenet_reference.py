@@ -27,7 +27,7 @@ def _write_meta(path: Path, payload: dict) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Prepare or validate ImageNet reference images for Stage 4A FID.")
-    parser.add_argument("--imagenet-root", type=Path, default=Path("/mnt/iset/nfs-main/public/datasets/ILSVRC/Data/CLS-LOC"))
+    parser.add_argument("--imagenet-root", type=Path, required=True)
     parser.add_argument("--split", default="val")
     parser.add_argument("--out-root", type=Path, default=ROOT / "outputs/stage4a/fid_reference")
     parser.add_argument("--num-images", type=int)

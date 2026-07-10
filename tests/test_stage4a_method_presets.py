@@ -21,6 +21,8 @@ def test_stage4a_jit_presets_required_methods() -> None:
         "seacache_style",
         "taylorseer_style",
         "taylorseer_quality_i3_o3",
+        "speca_style",
+        "dicache_style",
         "reduced_steps_35",
         "reduced_steps_30",
     }

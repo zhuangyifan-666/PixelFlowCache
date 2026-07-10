@@ -6,12 +6,16 @@ import csv
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-for env_name, default in {"MPLCONFIGDIR": "/tmp/pfc_matplotlib", "XDG_CACHE_HOME": "/tmp/pfc_xdg_cache"}.items():
+for env_name, default in {
+    "MPLCONFIGDIR": Path(tempfile.gettempdir()) / "pfc_matplotlib",
+    "XDG_CACHE_HOME": Path(tempfile.gettempdir()) / "pfc_xdg_cache",
+}.items():
     path = Path(os.environ.get(env_name, default))
     path.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault(env_name, str(path))

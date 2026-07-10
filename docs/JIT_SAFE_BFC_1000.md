@@ -43,3 +43,8 @@ conda run -n jit python scripts/run_jit_safe_calibration.py \
 ```
 
 Use `--dry-run` to inspect paths without loading a checkpoint or instantiating JiT.
+
+The safe-map files are mandatory preflight inputs and an all-false map is a blocker. Proxy FID commands validate exactly 1000 numeric PNG indices and set `proxy_only=true`. Resume-skipped and multi-shard timings are retained for provenance but are never used for algorithm speedup.
+## Warmup reset semantics
+
+`SafeMapCachePolicy.reset_stats()` clears reuse/refresh counters, age samples, and grouped diagnostics while preserving the safe map and all policy configuration. `reset_runtime_state()`/`clear_batch()` provide the common history-reset interface; Safe-BFC currently owns no separate batch history. After warmup, both reset phases run and `RuntimeCacheState` entries and counters are cleared, so warmup reuse never appears in the formal statistics.

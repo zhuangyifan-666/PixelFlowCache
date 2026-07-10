@@ -4,10 +4,13 @@ model:
   prediction: x_pred
   resolution: 256
 
+deprecated: true
+canonical_config: configs/pixbfc_jit.yaml
+
 paths:
   repo: third_party/JiT
   checkpoint_dir: ckpts/JiT/JiT-B-16-256
-  imagenet_root: /path/to/ILSVRC
+  imagenet_root: null
 
 generation:
   reference_steps: 50
@@ -48,7 +51,7 @@ methods:
     type: dynamic_cache
     steps: 50
     cache_layers: all
-    default_threshold: 0.10
+    default_threshold: 0.06
     sea_beta: 2.0
     proxy: x_t
     proxy_downsample: 64

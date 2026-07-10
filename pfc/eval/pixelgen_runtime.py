@@ -165,15 +165,23 @@ def sample_pixelgen_heun_jit(
     batch_size = x.shape[0]
     condition, uncondition = make_pixelgen_label_conditions(labels, config.num_classes)
     cfg_condition = torch.cat([uncondition, condition], dim=0)
-    steps = pixelgen_heun_timesteps(config.steps, config.timeshift, device=x.device, dtype=x.dtype)
+    cpu_steps = pixelgen_heun_timesteps(
+        config.steps,
+        config.timeshift,
+        device=torch.device("cpu"),
+        dtype=x.dtype,
+    )
+    timestep_values = [float(value) for value in cpu_steps.tolist()]
+    steps = cpu_steps.to(device=x.device, dtype=x.dtype)
     v_hat: torch.Tensor | None = None
 
     for step_idx, (t_cur_scalar, t_next_scalar) in enumerate(zip(steps[:-1], steps[1:])):
         dt = t_next_scalar - t_cur_scalar
         t_cur = t_cur_scalar.repeat(batch_size)
         t_next = t_next_scalar.repeat(batch_size)
-        t_value = _scalar_float(t_cur_scalar)
-        t_next_value = _scalar_float(t_next_scalar)
+        t_value = timestep_values[step_idx]
+        t_next_value = timestep_values[step_idx + 1]
+        dt_value = t_next_value - t_value
         cfg_scale = _guidance_for_t(t_value, config)
         predictor_ran = step_idx == 0 or config.exact_heun or v_hat is None
 
@@ -221,7 +229,7 @@ def sample_pixelgen_heun_jit(
                 "step_idx": step_idx,
                 "t": t_value,
                 "t_next": t_next_value,
-                "dt": _scalar_float(dt),
+                "dt": dt_value,
                 "cfg_enabled": cfg_scale != 1.0,
                 "cfg_scale": config.cfg,
                 "predictor_ran": predictor_ran,
@@ -243,7 +251,12 @@ def _update_dynamic_policy(
     writer: Callable[[dict[str, Any]], None] | None,
 ) -> None:
     proxy = maybe_downsample_proxy(proxy_from_image_state(x), max_size=max_size)
-    decision = dynamic_policy.update(proxy, step_idx=step_idx, t=t_value, branch="cfg_cat")
+    decision = dynamic_policy.update(
+        proxy,
+        step_idx=step_idx,
+        t=t_value,
+        branch=f"cfg_cat:{solver_stage}",
+    )
     if writer is not None:
         payload = asdict(decision)
         payload.update(
@@ -306,10 +319,6 @@ def _guidance_for_t(t_value: float, config: PixelGenRuntimeConfig) -> float:
     if t_value > config.guidance_interval_min and t_value <= config.guidance_interval_max:
         return config.cfg
     return 1.0
-
-
-def _scalar_float(value: torch.Tensor) -> float:
-    return float(value.detach().float().cpu().item())
 
 
 def _import_pixelgen_jit(pixelgen_dir: Path, *, enable_compile: bool) -> ModuleType:

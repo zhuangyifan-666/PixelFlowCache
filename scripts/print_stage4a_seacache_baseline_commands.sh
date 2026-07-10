@@ -18,7 +18,7 @@ print_jit() {
   for threshold in "${thresholds[@]}"; do
     local slug
     slug="$(slug_delta "$threshold")"
-    echo "CUDA_VISIBLE_DEVICES=0 PFC_CUDA_DEVICES=0 conda run -n jit python scripts/run_jit_stage4a_generate.py --method ${method} --dynamic-cache-threshold ${threshold} --num-images 1000 --batch-size 8 --seed 0 --run-id stage4a_jit_${label}_n1000_delta${slug}_seed0 --save-png --no-save-npz --resume"
+    echo "CUDA_VISIBLE_DEVICES=0 PFC_CUDA_DEVICES=0 conda run -n jit python scripts/run_jit_stage4a_generate.py --method ${method} --dynamic-cache-threshold ${threshold} --num-images 1000 --batch-size 8 --seed 0 --run-id stage4a_jit_${label}_n1000_delta${slug}_seed0 --save-png --no-save-npz"
   done
 }
 
@@ -28,7 +28,7 @@ print_deco() {
   for threshold in "${thresholds[@]}"; do
     local slug
     slug="$(slug_delta "$threshold")"
-    echo "CUDA_VISIBLE_DEVICES=0 PFC_CUDA_DEVICES=0 conda run -n deco python scripts/run_deco_stage4a_generate.py --method ${method} --dynamic-cache-threshold ${threshold} --num-images 1000 --batch-size 4 --seed 0 --run-id stage4a_deco_${label}_n1000_delta${slug}_seed0 --save-png --no-save-npz --resume"
+    echo "CUDA_VISIBLE_DEVICES=0 PFC_CUDA_DEVICES=0 conda run -n deco python scripts/run_deco_stage4a_generate.py --method ${method} --dynamic-cache-threshold ${threshold} --num-images 1000 --batch-size 4 --seed 0 --run-id stage4a_deco_${label}_n1000_delta${slug}_seed0 --save-png --no-save-npz"
   done
 }
 
@@ -45,5 +45,5 @@ echo "# DeCo TeaCache-style 1000-image threshold sweep"
 print_deco "teacache_style" "teacache"
 echo
 echo "# 50k templates after selecting a threshold"
-echo "CUDA_VISIBLE_DEVICES=0 PFC_CUDA_DEVICES=0 conda run -n jit python scripts/run_jit_stage4a_generate.py --method seacache_style --dynamic-cache-threshold 0.06 --num-images 50000 --batch-size 8 --seed 0 --run-id stage4a_jit_seacache_theta0p06_n50000_seed0 --save-png --no-save-npz --resume"
-echo "CUDA_VISIBLE_DEVICES=0 PFC_CUDA_DEVICES=0 conda run -n deco python scripts/run_deco_stage4a_generate.py --method seacache_style --dynamic-cache-threshold 0.06 --num-images 50000 --batch-size 4 --seed 0 --run-id stage4a_deco_seacache_theta0p06_n50000_seed0 --save-png --no-save-npz --resume"
+echo "CUDA_VISIBLE_DEVICES=0 PFC_CUDA_DEVICES=0 conda run -n jit python scripts/run_jit_stage4a_generate.py --method seacache_style --dynamic-cache-threshold 0.06 --num-images 50000 --batch-size 8 --seed 0 --run-id stage4a_jit_seacache_theta0p06_n50000_seed0 --save-png --no-save-npz"
+echo "CUDA_VISIBLE_DEVICES=0 PFC_CUDA_DEVICES=0 conda run -n deco python scripts/run_deco_stage4a_generate.py --method seacache_style --dynamic-cache-threshold 0.06 --num-images 50000 --batch-size 4 --seed 0 --run-id stage4a_deco_seacache_theta0p06_n50000_seed0 --save-png --no-save-npz"

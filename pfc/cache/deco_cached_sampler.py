@@ -44,7 +44,9 @@ class CachedDeCoEulerSampler(EulerSampler):
 
     def _impl_sampling(self, net: torch.nn.Module, noise: torch.Tensor, condition: Any, uncondition: Any):
         batch_size = noise.shape[0]
-        steps = self.timesteps.to(noise.device, noise.dtype)
+        cpu_steps = self.timesteps.detach().to(device="cpu", dtype=torch.float64)
+        timestep_values = [float(value) for value in cpu_steps.tolist()]
+        steps = cpu_steps.to(device=noise.device, dtype=noise.dtype)
         cfg_condition = torch.cat([uncondition, condition], dim=0)
         x = noise
         x_trajs = [noise]
@@ -65,10 +67,13 @@ class CachedDeCoEulerSampler(EulerSampler):
 
             cfg_x = torch.cat([x, x], dim=0)
             cfg_t = t_cur.repeat(2)
-            t_value = float(t_cur_scalar.detach().float().cpu().item())
-            t_next_value = float(t_next_scalar.detach().float().cpu().item())
-            dt_value = float(dt.detach().float().cpu().item())
-            cfg_enabled = bool(t_cur[0] > self.guidance_interval_min and t_cur[0] <= self.guidance_interval_max)
+            t_value = timestep_values[i]
+            t_next_value = timestep_values[i + 1]
+            dt_value = t_next_value - t_value
+            cfg_enabled = (
+                t_value > self.guidance_interval_min
+                and t_value <= self.guidance_interval_max
+            )
             guidance = self.guidance if cfg_enabled else 1.0
 
             if self.dynamic_policy is not None:
@@ -83,7 +88,8 @@ class CachedDeCoEulerSampler(EulerSampler):
                 self._write_velocity_records(i, t_value, t_next_value, dt_value, cfg_enabled, out_uncond, out_cond, v)
                 self._write_frequency_record(i, t_value, t_next_value, dt_value, cfg_enabled, v, prev_v)
                 self._write_step_record(i, t_value, t_next_value, dt_value, cfg_enabled)
-            prev_v = v.detach().to(dtype=torch.float16, device="cpu")
+            if self.log_diagnostics and self.frequency_writer is not None:
+                prev_v = v.detach().to(dtype=torch.float16, device="cpu")
 
             s = ((1 / dalpha_over_alpha) * v - x) / (sigma**2 - (1 / dalpha_over_alpha) * dsigma_mul_sigma)
             if i < self.num_steps - 1:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import importlib.metadata
 import json
 import math
 import sys
@@ -15,20 +16,28 @@ from typing import Iterable
 import numpy as np
 import torch
 from PIL import Image
-from skimage.metrics import structural_similarity
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from pfc.eval.provenance import (  # noqa: E402
+    collect_command_provenance,
+    collect_git_provenance,
+    collect_runtime_provenance,
+)
+
 EPS = 1e-12
 
 
 @dataclass
 class MetricSummary:
     count: int
-    mean: float
-    std: float
-    min: float
-    max: float
+    mean: float | None
+    std: float | None
+    min: float | None
+    max: float | None
 
 
 def _split_metrics(value: str) -> list[str]:
@@ -80,6 +89,12 @@ def _psnr(ref: np.ndarray, pred: np.ndarray) -> float:
 
 
 def _ssim(ref: np.ndarray, pred: np.ndarray) -> float:
+    try:
+        from skimage.metrics import structural_similarity
+    except ImportError as exc:
+        raise RuntimeError(
+            "SSIM requires scikit-image. Install it during server environment setup."
+        ) from exc
     return float(structural_similarity(ref, pred, channel_axis=-1, data_range=1.0))
 
 
@@ -91,8 +106,13 @@ def _rel_l2(ref: np.ndarray, pred: np.ndarray) -> float:
 
 def _summarize(values: list[float]) -> MetricSummary:
     if not values:
-        return MetricSummary(count=0, mean=float("nan"), std=float("nan"), min=float("nan"), max=float("nan"))
+        return MetricSummary(count=0, mean=None, std=None, min=None, max=None)
     arr = np.asarray(values, dtype=np.float64)
+    if not np.all(np.isfinite(arr)):
+        finite = arr[np.isfinite(arr)]
+        if finite.size == 0:
+            return MetricSummary(count=int(arr.size), mean=None, std=None, min=None, max=None)
+        arr = finite
     return MetricSummary(
         count=int(arr.size),
         mean=float(np.mean(arr)),
@@ -111,9 +131,29 @@ def _device(name: str) -> torch.device:
     return device
 
 
-def _make_lpips_model(device: torch.device):
+def _package_version(name: str) -> str | None:
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def _lpips_backbone_is_cached() -> bool:
+    try:
+        checkpoint_dir = Path(torch.hub.get_dir()) / "checkpoints"
+    except Exception:
+        return False
+    return any(checkpoint_dir.glob("alexnet-*.pth"))
+
+
+def _make_lpips_model(device: torch.device, *, allow_download: bool = False):
     import lpips
 
+    if not allow_download and not _lpips_backbone_is_cached():
+        raise RuntimeError(
+            "LPIPS AlexNet backbone weights are not present in the local torch cache. "
+            "Pre-stage the weights during server setup or pass --allow-lpips-download explicitly."
+        )
     model = lpips.LPIPS(net="alex")
     model.eval()
     model.to(device)
@@ -150,6 +190,7 @@ def evaluate_pair_metrics(
     limit: int | None = None,
     strict: bool = True,
     save_per_image: bool = True,
+    allow_lpips_download: bool = False,
 ) -> dict:
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
@@ -159,7 +200,11 @@ def evaluate_pair_metrics(
     if not names:
         raise RuntimeError("No paired PNG filenames found.")
     device = _device(device_name)
-    lpips_model = _make_lpips_model(device) if "lpips" in metrics else None
+    lpips_model = (
+        _make_lpips_model(device, allow_download=allow_lpips_download)
+        if "lpips" in metrics
+        else None
+    )
     values: dict[str, list[float]] = {metric: [] for metric in metrics}
     per_image_path = out.with_suffix(".per_image.csv")
     if save_per_image:
@@ -197,7 +242,19 @@ def evaluate_pair_metrics(
             _append_csv_rows(per_image_path, rows, metrics)
     elapsed = time.perf_counter() - start
     summary = {metric: asdict(_summarize(vals)) for metric, vals in values.items()}
+    identical_pair_count = sum(math.isinf(value) for value in values.get("psnr", []))
+    if "psnr" in summary:
+        if identical_pair_count:
+            summary["psnr"].update({"mean": None, "std": None, "max": None})
+        summary["psnr"].update(
+            {
+                "display": "inf" if identical_pair_count else None,
+                "is_infinite": identical_pair_count > 0,
+                "identical_pair_count": identical_pair_count,
+            }
+        )
     payload = {
+        "schema_version": 2,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "reference_dir": str(reference_dir.resolve()),
         "method_dir": str(method_dir.resolve()),
@@ -207,13 +264,30 @@ def evaluate_pair_metrics(
         "batch_size": batch_size,
         "limit": limit,
         "elapsed_sec": elapsed,
-        "pairs_per_sec": len(names) / elapsed if elapsed > 0 else float("inf"),
+        "pairs_per_sec": len(names) / elapsed if elapsed > 0 else None,
         "summary": summary,
         "per_image_csv": str(per_image_path.resolve()) if save_per_image else None,
         "pair_count": len(names),
+        "identical_pair_count": identical_pair_count,
+        "PSNR": summary.get("psnr", {}).get("mean"),
+        "PSNR_display": summary.get("psnr", {}).get("display"),
+        "PSNR_is_infinite": summary.get("psnr", {}).get("is_infinite", False),
+        "lpips_net": "alex" if "lpips" in metrics else None,
+        "lpips_package_version": _package_version("lpips"),
+        "scikit_image_version": _package_version("scikit-image"),
+        "image_normalization": "PNG uint8 decoded as RGB float32 [0,1]; LPIPS remapped to [-1,1]",
+        "png_quantization_note": "Metrics are computed after 8-bit PNG quantization.",
+        "lpips_download_allowed": bool(allow_lpips_download),
+        "command": collect_command_provenance(),
+        "command_argv": list(sys.argv),
+        "runtime": collect_runtime_provenance(),
+        "git": collect_git_provenance(ROOT),
     }
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    out.write_text(
+        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
     return payload
 
 
@@ -228,6 +302,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--no-strict", dest="strict", action="store_false", default=True)
     parser.add_argument("--no-per-image", dest="save_per_image", action="store_false", default=True)
+    parser.add_argument(
+        "--allow-lpips-download",
+        action="store_true",
+        help="Allow LPIPS/torchvision to download missing AlexNet weights. Disabled by default.",
+    )
     return parser
 
 
@@ -244,8 +323,9 @@ def main() -> int:
         limit=args.limit,
         strict=args.strict,
         save_per_image=args.save_per_image,
+        allow_lpips_download=args.allow_lpips_download,
     )
-    print(json.dumps(payload["summary"], indent=2, sort_keys=True))
+    print(json.dumps(payload["summary"], indent=2, sort_keys=True, allow_nan=False))
     return 0
 
 

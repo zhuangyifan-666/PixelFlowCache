@@ -1,0 +1,35 @@
+model: jit
+method: speca_style
+steps: 50
+
+draft:
+  type: adapted_taylorseer
+  level: block_output
+  max_order: 4
+  min_history: 2
+
+verification:
+  module: auto_last_block
+  metric: relative_l1
+  eps: 1.0e-10
+  decision_timing: next_step
+  branch_aggregation: mean
+
+schedule:
+  first_full_steps: 3
+  base_threshold: 0.1
+  decay_rate: 0.01
+  min_threshold: 0.01
+  min_forecast_steps: 2
+  max_forecast_steps: 5
+  time_direction: noise_to_image
+  progress_formula: (step_idx + 1) / total_steps
+
+speca:
+  eps: 1.0e-10
+  max_error_samples: 4096
+  clone_forecast: false
+
+timing:
+  per_operation_semantics: host_dispatch_only
+  cuda_event_profiling: false

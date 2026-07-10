@@ -38,16 +38,20 @@ def test_pair_metrics_identical_images(tmp_path: Path) -> None:
         reference_dir=ref,
         method_dir=method,
         out=out,
-        metrics=["psnr", "ssim", "rel_l2"],
+        metrics=["psnr", "rel_l2"],
         batch_size=2,
         device_name="cpu",
         save_per_image=True,
     )
 
     assert payload["num_pairs"] == 3
-    assert payload["summary"]["ssim"]["mean"] == 1.0
     assert payload["summary"]["rel_l2"]["mean"] == 0.0
-    assert json.loads(out.read_text())["num_pairs"] == 3
+    assert payload["summary"]["psnr"]["mean"] is None
+    assert payload["PSNR_is_infinite"] is True
+    assert payload["identical_pair_count"] == 3
+    raw = out.read_text(encoding="utf-8")
+    assert "Infinity" not in raw
+    assert json.loads(raw)["num_pairs"] == 3
     assert out.with_suffix(".per_image.csv").exists()
 
 

@@ -1,0 +1,38 @@
+model: jit
+method: dicache_style
+steps: 50
+
+adaptation:
+  official_reproduction: false
+  schedule_granularity: batch_level_shared_cfg
+  residual_space: image_token_block_stack
+  solver_stage: euler
+
+probe:
+  depth: 1
+  error_choice: delta_y
+  branch_aggregation: mean
+  eps: 1.0e-10
+
+schedule:
+  variant: released_flux_compat
+  reuse_threshold: 0.4
+  ret_ratio: 0.2
+  force_last_step_full: true
+  decision_rule: strict_lt
+
+cfg:
+  share_common_prefix: false
+  fairness_mode: strict_no_cache_matched
+
+dcta:
+  enabled: true
+  order: 1
+  gamma_min: 1.0
+  gamma_max: 1.5
+  history_size: 2
+
+statistics:
+  max_samples: 4096
+  timing_semantics: host_dispatch_only
+  separate_observed_and_decision_errors: true

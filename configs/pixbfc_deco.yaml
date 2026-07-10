@@ -9,7 +9,7 @@ model:
 paths:
   repo: third_party/DeCo
   config: third_party/DeCo/configs_c2i/DeCo_XL.yaml
-  checkpoint: ckpts/DeCo/imagenet256_epoch800/imagenet256_epoch800.ckpt
+  checkpoint: ckpts/DeCo/DeCo_XL.ckpt
 
 pixbfc:
   default_boundary_set: deco_all_candidates

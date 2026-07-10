@@ -31,6 +31,7 @@ def test_jit_dry_run_includes_pixbfc_adapter_metadata(tmp_path: Path) -> None:
         check=True,
         text=True,
         capture_output=True,
+        timeout=60,
     )
     meta = json.loads(result.stdout)["meta"]
     assert meta["prediction_type"] == "xpred"
@@ -64,6 +65,7 @@ def test_deco_dry_run_includes_pixbfc_adapter_metadata(tmp_path: Path) -> None:
         check=True,
         text=True,
         capture_output=True,
+        timeout=60,
     )
     meta = json.loads(result.stdout)["meta"]
     assert meta["prediction_type"] == "vpred"

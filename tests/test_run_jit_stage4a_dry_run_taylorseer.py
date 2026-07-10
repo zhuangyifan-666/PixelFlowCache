@@ -35,6 +35,7 @@ def test_run_jit_stage4a_taylorseer_dry_run_prints_config_without_sampling(tmp_p
         check=False,
         text=True,
         capture_output=True,
+        timeout=60,
     )
     assert result.returncode == 0
     assert "taylorseer_style" in result.stdout

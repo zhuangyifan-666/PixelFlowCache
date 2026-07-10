@@ -41,6 +41,15 @@ class DynamicPolicyAdapter:
     def current_decision(self, cfg_branch: str = "global") -> DynamicCacheDecision | None:
         return self.dynamic_policy.current_decision(cfg_branch)
 
+    def _decision_for_context(
+        self,
+        cfg_branch: str,
+        solver_stage: str,
+    ) -> DynamicCacheDecision | None:
+        return self.dynamic_policy.current_decision(
+            f"{cfg_branch}:{solver_stage}"
+        ) or self.dynamic_policy.current_decision(cfg_branch)
+
     def is_active(
         self,
         step_idx: int,
@@ -76,7 +85,7 @@ class DynamicPolicyAdapter:
             return True
         if not self.is_branch_enabled(cfg_branch):
             return True
-        decision = self.dynamic_policy.current_decision(cfg_branch)
+        decision = self._decision_for_context(cfg_branch, solver_stage)
         if decision is None or decision.step_idx != int(step_idx):
             return True
         return bool(decision.should_refresh)

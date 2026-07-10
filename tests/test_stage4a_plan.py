@@ -18,19 +18,28 @@ def test_stage4a_plan_prints_generation_and_fid_commands(tmp_path: Path) -> None
             "scripts/run_stage4a_full_eval_plan.py",
             "--models",
             "jit",
-            "--num-images",
-            "100",
-            "--out-script",
+                "--num-images",
+                "100",
+                "--safe-map-quality",
+                "quality.json",
+                "--safe-map-speed",
+                "speed.json",
+                "--out-script",
             str(out_script),
         ],
         cwd=ROOT,
         check=True,
         text=True,
         capture_output=True,
+        timeout=60,
     )
     assert "run_jit_stage4a_generate.py" in result.stdout
     assert "evaluate_stage4a_fid.py" in result.stdout
+    assert "--method speca_style" in result.stdout
+    assert "--method dicache_style" in result.stdout
+    assert "--dicache-probe-depth 1" in result.stdout
     assert "conda run -n jit" in result.stdout
+    assert "--resume" not in result.stdout
     assert out_script.exists()
     assert "Review and run commands manually" in out_script.read_text(encoding="utf-8")
 
@@ -59,6 +68,7 @@ def test_stage4a_jit_dry_run_serializes_paths(tmp_path: Path) -> None:
         check=False,
         text=True,
         capture_output=True,
+        timeout=60,
     )
     assert result.returncode == 0
     assert "checkpoint_exists" in result.stdout
